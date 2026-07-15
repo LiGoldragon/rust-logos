@@ -1,0 +1,28 @@
+[package]
+name         = "textual-rust"
+version      = "0.1.0"
+edition      = "2024"
+rust-version = "1.85"
+license      = "MIT OR Apache-2.0"
+repository   = "https://github.com/LiGoldragon/textual-rust"
+description  = "The TextualRust form codec: the two-way bridge between Rust TEXT and the stringless CoreLogos algebra. Reads a principled Rust subset into Logos through syn; projects Logos out as byte-exact prettyplease Rust. This is the foreign raw layer where syn and prettyplease are allowed; the Core sibling core-logos stays text-free."
+publish      = false
+
+[lib]
+name = "textual_rust"
+path = "src/lib.rs"
+
+[dependencies]
+core-logos       = { git = "https://github.com/LiGoldragon/core-logos.git", rev = "10e24ebb3bd7" }
+name-table       = { git = "https://github.com/LiGoldragon/name-table.git", rev = "c3237f77c087e6feab49d6cf34971cebc14a11e6" }
+content-identity = { git = "https://github.com/LiGoldragon/content-identity.git", rev = "6cc0408cdb96f174cc8fdf6ca23420038de28450" }
+proc-macro2      = "1"
+quote            = "1"
+syn              = { version = "2", features = ["full", "parsing", "printing", "extra-traits"] }
+prettyplease     = "0.2"
+thiserror        = "2"
+
+[lints.rust]
+unsafe_code = "forbid"
+unused      = { level = "warn", priority = -1 }
+dead_code   = "warn"
