@@ -1242,6 +1242,10 @@ impl ReadRust for syn::Block {
         }
         match &self.stmts[0] {
             syn::Stmt::Expr(expression, None) => Ok(Block {
+                // The reader decodes only the single-tail-expression body subset; the
+                // multi-statement codec bodies are encode-only (Nomos-generated), so a
+                // decoded block carries no statements.
+                statements: Vec::new(),
                 tail_expression: expression.read(interner)?,
             }),
             syn::Stmt::Expr(_, Some(_)) => Err(Error::UnsupportedStatement {
@@ -1305,7 +1309,14 @@ impl ReadRust for syn::Expr {
                     .iter()
                     .map(|argument| argument.read(interner))
                     .collect::<Result<Vec<_>, _>>()?;
-                Ok(Expression::Call(Call { callee, arguments }))
+                // Path-call turbofish is encode-only (the Nomos-generated codec
+                // bodies); the decodable subset carries no turbofished path call, so a
+                // decoded call has empty type arguments.
+                Ok(Expression::Call(Call {
+                    callee,
+                    type_arguments: Vec::new(),
+                    arguments,
+                }))
             }
             syn::Expr::MethodCall(method_call) => {
                 let type_arguments = match &method_call.turbofish {

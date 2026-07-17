@@ -98,7 +98,7 @@ dependencies = [
 [[package]]
 name = "core-logos"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/core-logos.git?rev=0c6df526a84a6f0856f8dfe2718a7567503133d2#0c6df526a84a6f0856f8dfe2718a7567503133d2"
+source = "git+https://github.com/LiGoldragon/core-logos.git?rev=8e680f6890bedba3ab7d2672fc85e67a71625530#8e680f6890bedba3ab7d2672fc85e67a71625530"
 dependencies = [
  "content-identity",
  "name-table",

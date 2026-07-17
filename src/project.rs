@@ -30,13 +30,15 @@
 //! in the CoreLogos value and transcribed.
 
 use core_logos::{
-    Alias, ArrayExpression, AssociatedType, Attribute, Block, Call, Callee, ConfigurationAttribute,
-    ConfigurationPredicate, Const, CoreItem, DeriveGroup, Enumeration, Expression, Field, Function,
-    GenericParameter, Generics, HelperDerive, ImplBlock, ImplItem, ImplTraitType, IntegerLiteral,
-    IntegerRepresentation, LifetimeParameter, Match, MatchArm, MethodCall, Module, Newtype,
-    Parameter, PathNode, Pattern, PatternElement, QualifiedPath, Receiver, ReferenceExpression,
-    ReferenceMutability, ReferenceType, SliceType, Struct, TupleFieldAccess, TupleVariantPattern,
-    TypeApplication, TypeParameter, TypeReference, Use, Variant, VariantPayload, Visibility,
+    Alias, ArrayExpression, AssociatedType, Attribute, Block, Call, Callee, ClosureExpression,
+    ConfigurationAttribute, ConfigurationPredicate, Const, CoreItem, DeriveGroup, Enumeration,
+    Expression, Field, Function, GenericParameter, Generics, HelperDerive, ImplBlock, ImplItem,
+    ImplTraitType, IndexExpression, IntegerLiteral, IntegerRepresentation, LetBinding,
+    LetStatement, LifetimeParameter, Match, MatchArm, MethodCall, Module, Newtype, Parameter,
+    PathNode, Pattern, PatternElement, QualifiedPath, RangeExpression, Receiver,
+    ReferenceExpression, ReferenceMutability, ReferenceType, SliceType, Statement, Struct,
+    TryExpression, TupleExpression, TupleFieldAccess, TupleVariantPattern, TypeApplication,
+    TypeParameter, TypeReference, Use, Variant, VariantPayload, Visibility,
 };
 use name_table::{Identifier, NameResolver};
 use proc_macro2::TokenStream;
@@ -508,7 +510,83 @@ impl ProjectRust for Expression {
             Expression::Match(match_expression) => match_expression.project(names),
             Expression::IntegerLiteral(literal) => literal.project(names),
             Expression::Array(array) => array.project(names),
+            Expression::Try(try_expression) => try_expression.project(names),
+            Expression::Closure(closure) => closure.project(names),
+            Expression::Tuple(tuple) => tuple.project(names),
+            Expression::Index(index) => index.project(names),
+            Expression::Range(range) => range.project(names),
         }
+    }
+}
+
+impl ProjectRust for TryExpression {
+    fn project<Resolver: NameResolver + ?Sized>(
+        &self,
+        names: &Resolver,
+    ) -> Result<TokenStream, Error> {
+        let inner = self.inner.project(names)?;
+        Ok(quote! { #inner? })
+    }
+}
+
+impl ProjectRust for ClosureExpression {
+    fn project<Resolver: NameResolver + ?Sized>(
+        &self,
+        names: &Resolver,
+    ) -> Result<TokenStream, Error> {
+        let parameters = self
+            .parameters
+            .iter()
+            .map(|parameter| parameter.project(names))
+            .collect::<Result<Vec<_>, _>>()?;
+        let body = self.body.project(names)?;
+        Ok(quote! { |#(#parameters),*| #body })
+    }
+}
+
+impl ProjectRust for TupleExpression {
+    fn project<Resolver: NameResolver + ?Sized>(
+        &self,
+        names: &Resolver,
+    ) -> Result<TokenStream, Error> {
+        let elements = self
+            .elements
+            .iter()
+            .map(|element| element.project(names))
+            .collect::<Result<Vec<_>, _>>()?;
+        // The `(…)` delimiter — a delimiter re-sugaring the owning node chooses. A
+        // zero-element vector projects to the unit value `()`.
+        Ok(quote! { (#(#elements),*) })
+    }
+}
+
+impl ProjectRust for IndexExpression {
+    fn project<Resolver: NameResolver + ?Sized>(
+        &self,
+        names: &Resolver,
+    ) -> Result<TokenStream, Error> {
+        let base = self.base.project(names)?;
+        let index = self.index.project(names)?;
+        // The `[…]` index delimiter — a delimiter re-sugaring the owning node chooses.
+        Ok(quote! { #base[#index] })
+    }
+}
+
+impl ProjectRust for RangeExpression {
+    fn project<Resolver: NameResolver + ?Sized>(
+        &self,
+        names: &Resolver,
+    ) -> Result<TokenStream, Error> {
+        let start = match &self.start {
+            None => TokenStream::new(),
+            Some(start) => start.project(names)?,
+        };
+        let end = match &self.end {
+            None => TokenStream::new(),
+            Some(end) => end.project(names)?,
+        };
+        // The exclusive `..` operator — the range re-sugaring the owning node chooses.
+        Ok(quote! { #start..#end })
     }
 }
 
@@ -574,12 +652,22 @@ impl ProjectRust for Call {
         names: &Resolver,
     ) -> Result<TokenStream, Error> {
         let callee = self.callee.project(names)?;
+        let turbofish = if self.type_arguments.is_empty() {
+            TokenStream::new()
+        } else {
+            let type_arguments = self
+                .type_arguments
+                .iter()
+                .map(|type_argument| type_argument.project(names))
+                .collect::<Result<Vec<_>, _>>()?;
+            quote! { ::<#(#type_arguments),*> }
+        };
         let arguments = self
             .arguments
             .iter()
             .map(|argument| argument.project(names))
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(quote! { #callee(#(#arguments),*) })
+        Ok(quote! { #callee #turbofish (#(#arguments),*) })
     }
 }
 
@@ -671,6 +759,7 @@ impl ProjectRust for Pattern {
         match self {
             Pattern::Path(path) => path.project(names),
             Pattern::TupleVariant(tuple_variant) => tuple_variant.project(names),
+            Pattern::Wildcard => Ok(quote! { _ }),
         }
     }
 }
@@ -730,9 +819,45 @@ impl ProjectRust for Block {
         &self,
         names: &Resolver,
     ) -> Result<TokenStream, Error> {
+        let statements = self
+            .statements
+            .iter()
+            .map(|statement| statement.project(names))
+            .collect::<Result<Vec<_>, _>>()?;
         let tail_expression = self.tail_expression.project(names)?;
-        // The `{ … }` block delimiter — one of the five allowed syntheses.
-        Ok(quote! { { #tail_expression } })
+        // The `{ … }` block delimiter — one of the five allowed syntheses. The
+        // statements carry their own `;`; the tail expression carries none.
+        Ok(quote! { { #(#statements)* #tail_expression } })
+    }
+}
+
+impl ProjectRust for Statement {
+    fn project<Resolver: NameResolver + ?Sized>(
+        &self,
+        names: &Resolver,
+    ) -> Result<TokenStream, Error> {
+        match self {
+            Statement::Let(let_statement) => let_statement.project(names),
+            Statement::Expression(expression) => {
+                let expression = expression.project(names)?;
+                Ok(quote! { #expression; })
+            }
+        }
+    }
+}
+
+impl ProjectRust for LetStatement {
+    fn project<Resolver: NameResolver + ?Sized>(
+        &self,
+        names: &Resolver,
+    ) -> Result<TokenStream, Error> {
+        let mutable = match self.binding {
+            LetBinding::Immutable => TokenStream::new(),
+            LetBinding::Mutable => quote! { mut },
+        };
+        let name = self.name.project(names)?;
+        let value = self.value.project(names)?;
+        Ok(quote! { let #mutable #name = #value; })
     }
 }
 
