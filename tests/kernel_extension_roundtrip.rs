@@ -1,11 +1,15 @@
-//! The layout-3 kernel-extension acceptance proof: the golden's class-B constructor
+//! The layout-3/4 kernel-extension acceptance proof: the golden's class-B constructor
 //! and trait impls, its class-D trace/object-name enums and nested-match `name`
-//! methods, and its class-C const/module/associated-const stub items decode into the
-//! grown CoreLogos vocabulary and re-encode byte-exact against the frozen
-//! `spirit_generated.rs` golden bytes. Negative tests hold the vocabulary boundary:
-//! a construct just outside the closed set fails loudly and typed.
+//! methods, its class-D `pub struct TraceEvent(pub ObjectName);` tuple-struct
+//! declaration (layout 4's tuple-field visibility), and its class-C
+//! const/module/associated-const stub items decode into the grown CoreLogos
+//! vocabulary and re-encode byte-exact against the frozen `spirit_generated.rs`
+//! golden bytes. Negative tests hold the vocabulary boundary: a construct just
+//! outside the closed set fails loudly and typed.
 
-use core_logos::{Const, CoreItem, Expression, ImplItem, IntegerRepresentation, TypeReference};
+use core_logos::{
+    Const, CoreItem, Expression, ImplItem, IntegerRepresentation, TypeReference, Visibility,
+};
 use name_table::{NameResolver, NameTable};
 use textual_rust::error::Error;
 use textual_rust::{DecodeAtomically, RustSource};
@@ -98,6 +102,24 @@ fn class_d_nested_match_name_method_round_trips() {
     assert!(
         matches!(outer.arms[0].body, Expression::Match(_)),
         "the outer match arm body is itself a match — a nested match",
+    );
+}
+
+/// Class D (layout 4): the `pub struct TraceEvent(pub ObjectName);` tuple-struct
+/// *declaration* — whose tuple field carries `pub` — round-trips byte-exact, and its
+/// decoded `wrapped_visibility` is the stored `Public` that projects the inner `pub`.
+/// This is the last class-D gap the layout-4 tuple-field visibility closes.
+#[test]
+fn class_d_trace_event_declaration_round_trips_with_pub_tuple_field() {
+    let mut table = NameTable::new();
+    let core = round_trip_golden_item("pub struct TraceEvent(pub ObjectName)", &mut table);
+    let CoreItem::Newtype(newtype) = core else {
+        panic!("a tuple newtype declaration");
+    };
+    assert_eq!(
+        newtype.wrapped_visibility,
+        Visibility::Public,
+        "the tuple field's stored visibility is Public — the inner `pub`",
     );
 }
 

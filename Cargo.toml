@@ -13,7 +13,7 @@ name = "textual_rust"
 path = "src/lib.rs"
 
 [dependencies]
-core-logos       = { git = "https://github.com/LiGoldragon/core-logos.git", rev = "b6198df22e9a56d349012f94c1c853cdb13f9312" }
+core-logos       = { git = "https://github.com/LiGoldragon/core-logos.git", rev = "0c6df526a84a6f0856f8dfe2718a7567503133d2" }
 name-table       = { git = "https://github.com/LiGoldragon/name-table.git", rev = "c3237f77c087e6feab49d6cf34971cebc14a11e6" }
 content-identity = { git = "https://github.com/LiGoldragon/content-identity.git", rev = "6cc0408cdb96f174cc8fdf6ca23420038de28450" }
 proc-macro2      = "1"

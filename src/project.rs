@@ -426,8 +426,13 @@ impl ProjectRust for Newtype {
         let attributes = self.attributes.project_preamble(names)?;
         let visibility = self.visibility.project(names)?;
         let name = self.name.project(names)?;
+        let wrapped_visibility = self.wrapped_visibility.project(names)?;
         let wrapped = self.wrapped.project(names)?;
-        Ok(quote! { #attributes #visibility struct #name(#wrapped); })
+        // `wrapped_visibility` is the tuple field's own visibility; `Private`
+        // projects to the empty token stream, so a bare newtype emits
+        // `struct Name(Wrapped);` and a `pub`-field newtype emits
+        // `struct Name(pub Wrapped);` — the same node, no special case.
+        Ok(quote! { #attributes #visibility struct #name(#wrapped_visibility #wrapped); })
     }
 }
 

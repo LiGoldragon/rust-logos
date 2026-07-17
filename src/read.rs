@@ -144,20 +144,17 @@ impl ReadRust for syn::ItemStruct {
                 }
                 let field = &unnamed.unnamed[0];
                 field.reject_field_attributes()?;
-                // The Core newtype models no tuple-field visibility (its `wrapped`
-                // is a bare type). A `pub`-qualified field (`Name(pub Wrapped)`) is
-                // therefore out of subset — dropping the `pub` would be a silent
-                // guess, so it fails loudly instead.
-                if !matches!(field.vis, syn::Visibility::Inherited) {
-                    return Err(Error::UnsupportedItem {
-                        construct: "a tuple newtype with a visibility-qualified field",
-                    });
-                }
+                // The tuple field carries its own visibility as stored data
+                // (layout 4): `Name(pub Wrapped)` reads `Public`, the bare
+                // `Name(Wrapped)` reads `Private` (which projects to nothing), so
+                // the `pub`-field form round-trips instead of failing out of subset.
+                let wrapped_visibility = field.vis.read(interner)?;
                 let wrapped = field.ty.read(interner)?;
                 Ok(CoreItem::Newtype(Newtype {
                     visibility,
                     attributes,
                     name,
+                    wrapped_visibility,
                     wrapped,
                 }))
             }
