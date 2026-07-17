@@ -19,6 +19,12 @@ pub enum Error {
     #[error("out-of-subset item: {construct} is not one of the modeled item kinds")]
     UnsupportedItem { construct: &'static str },
 
+    /// A `use` import shape outside the modeled brace-group form
+    /// (`use <base>::{<names>};`) — a bare `use path::Name;`, a glob, a rename, a
+    /// nested group, or a leading-colon absolute path.
+    #[error("out-of-subset use import: {construct}")]
+    UnsupportedUseTree { construct: &'static str },
+
     /// An associated item inside an impl block that is not a method — an associated
     /// const, an associated type, or a macro. Only functions are modeled as impl
     /// members.

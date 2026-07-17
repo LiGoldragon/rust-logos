@@ -25,12 +25,14 @@
 //!
 //! The two-way subset is exactly what CoreLogos models: the data item kinds
 //! (newtype, named-field struct, enum, type alias) plus impl blocks and functions
-//! whose bodies are the closed Tier-1 expression vocabulary, over the witnessed
-//! attribute/visibility/generic/type vocabulary. Trait definitions, `use`
-//! re-exports, modules, macros, unions, const generics, and class-B function bodies
-//! (`let` bindings, early `return`, struct literals, `&mut`, closures) remain **out
-//! of subset** and fail loudly. This is the documented growth point: the subset
-//! grows further when Logos models the class-B bodies or trait definitions as data.
+//! whose bodies are the closed Tier-1 expression vocabulary, and the brace-group
+//! `use` import (`use <base>::{<names>};` — the module prelude's NOTA import), over
+//! the witnessed attribute/visibility/generic/type vocabulary. Trait definitions,
+//! non-brace-group `use` shapes (bare, glob, rename), modules, macros, unions, const
+//! generics, and class-B function bodies (`let` bindings, early `return`, struct
+//! literals, `&mut`, closures) remain **out of subset** and fail loudly. This is the
+//! documented growth point: the subset grows further when Logos models the class-B
+//! bodies or trait definitions as data.
 //!
 //! ## The codec is the acceptance oracle
 //!

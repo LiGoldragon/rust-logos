@@ -4,12 +4,13 @@
 //! in-subset AST to CoreLogos. The principled subset is exactly what CoreLogos
 //! models: the data item kinds (newtype, named-field struct, enum, type alias) plus
 //! impl blocks and functions whose bodies are the closed Tier-1 expression
-//! vocabulary, over the witnessed attribute/visibility/generic/type vocabulary.
-//! Every out-of-subset construct — a trait definition, a `use` re-export, a module,
-//! a macro, a union, a const generic, an unmodeled attribute, a wire-data reference
-//! or tuple type, or a class-B body statement/expression/pattern — produces a
-//! **typed loud error naming the construct**. The reader never guesses and never
-//! skips by default.
+//! vocabulary, over the witnessed attribute/visibility/generic/type vocabulary, plus
+//! the brace-group `use` import that heads the module prelude. Every
+//! out-of-subset construct — a trait definition, a non-brace-group `use` shape, a
+//! module, a macro, a union, a const generic, an unmodeled attribute, a wire-data
+//! reference or tuple type, or a class-B body statement/expression/pattern —
+//! produces a **typed loud error naming the construct**. The reader never guesses
+//! and never skips by default.
 //!
 //! The verb belongs to the noun being read: [`ReadRust`] is implemented on the
 //! `syn` AST nodes, each producing its CoreLogos counterpart and interning names
@@ -22,7 +23,7 @@ use core_logos::{
     HelperDerive, ImplBlock, ImplTraitType, LifetimeParameter, Match, MatchArm, MethodCall,
     Newtype, Parameter, PathNode, Pattern, PatternElement, QualifiedPath, Receiver,
     ReferenceExpression, ReferenceType, Struct, TupleFieldAccess, TupleVariantPattern,
-    TypeApplication, TypeParameter, TypeReference, Variant, VariantPayload, Visibility,
+    TypeApplication, TypeParameter, TypeReference, Use, Variant, VariantPayload, Visibility,
 };
 use name_table::{Identifier, Name, NameInterner};
 use quote::ToTokens;
@@ -78,9 +79,7 @@ impl ReadRust for syn::Item {
             syn::Item::TraitAlias(_) => Err(Error::UnsupportedItem {
                 construct: "a trait alias",
             }),
-            syn::Item::Use(_) => Err(Error::UnsupportedItem {
-                construct: "a use re-export",
-            }),
+            syn::Item::Use(use_import) => use_import.read(interner),
             syn::Item::Mod(_) => Err(Error::UnsupportedItem {
                 construct: "a module",
             }),
@@ -252,6 +251,79 @@ impl ReadRust for syn::ItemType {
     }
 }
 
+impl ReadRust for syn::ItemUse {
+    type Logos = CoreItem;
+
+    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<CoreItem, Error> {
+        if self.leading_colon.is_some() {
+            return Err(Error::UnsupportedUseTree {
+                construct: "a leading-colon absolute import",
+            });
+        }
+        let attributes = self.attrs.read_preamble(interner)?;
+        let visibility = self.vis.read(interner)?;
+        // Walk the `<base>::…::{<group>}` chain: the leading path segments are the
+        // base, and the terminal brace group is the imported leaf names. A bare
+        // name, a glob, or a rename is out of subset.
+        let mut base = Vec::new();
+        let group = self.tree.read_use_group(interner, &mut base)?;
+        Ok(CoreItem::Use(Use {
+            visibility,
+            attributes,
+            base: PathNode { segments: base },
+            group,
+        }))
+    }
+}
+
+/// Reading the `<base>::{<group>}` shape of a use tree — a verb on the
+/// `syn::UseTree` noun. The leading path segments accumulate into `base`; the
+/// terminal brace group of plain names is returned. Any other shape (a bare name, a
+/// glob, a rename, a nested group) is out of subset and loud.
+trait ReadUseGroup {
+    fn read_use_group<Interner: NameInterner>(
+        &self,
+        interner: &mut Interner,
+        base: &mut Vec<Identifier>,
+    ) -> Result<Vec<Identifier>, Error>;
+}
+
+impl ReadUseGroup for syn::UseTree {
+    fn read_use_group<Interner: NameInterner>(
+        &self,
+        interner: &mut Interner,
+        base: &mut Vec<Identifier>,
+    ) -> Result<Vec<Identifier>, Error> {
+        match self {
+            syn::UseTree::Path(path) => {
+                base.push(interner.intern(Name::new(path.ident.to_string())));
+                path.tree.read_use_group(interner, base)
+            }
+            syn::UseTree::Group(group) => {
+                let mut names = Vec::with_capacity(group.items.len());
+                for item in &group.items {
+                    let syn::UseTree::Name(name) = item else {
+                        return Err(Error::UnsupportedUseTree {
+                            construct: "a use group element that is not a plain name",
+                        });
+                    };
+                    names.push(interner.intern(Name::new(name.ident.to_string())));
+                }
+                Ok(names)
+            }
+            syn::UseTree::Name(_) => Err(Error::UnsupportedUseTree {
+                construct: "a bare `use path::Name;` import (only the brace-group form is modeled)",
+            }),
+            syn::UseTree::Rename(_) => Err(Error::UnsupportedUseTree {
+                construct: "a renamed `as` import",
+            }),
+            syn::UseTree::Glob(_) => Err(Error::UnsupportedUseTree {
+                construct: "a glob `*` import",
+            }),
+        }
+    }
+}
+
 impl ReadRust for syn::Field {
     type Logos = Field;
 
@@ -349,6 +421,9 @@ impl ReadRust for syn::MetaList {
         if self.path.is_ident("cfg_attr") {
             return self.read_configuration(interner);
         }
+        if self.path.is_ident("cfg") {
+            return self.read_cfg(interner);
+        }
         // A single-segment namespaced helper whose sole argument is a `derive(…)`:
         // `#[rkyv(derive(PartialOrd, Ord))]`.
         if let Some(helper) = self.read_helper_derive(interner)? {
@@ -371,6 +446,9 @@ trait ReadListAttribute {
         &self,
         interner: &mut Interner,
     ) -> Result<Attribute, Error>;
+
+    fn read_cfg<Interner: NameInterner>(&self, interner: &mut Interner)
+    -> Result<Attribute, Error>;
 
     fn read_helper_derive<Interner: NameInterner>(
         &self,
@@ -411,6 +489,22 @@ impl ReadListAttribute for syn::MetaList {
             predicate,
             inner,
         }))
+    }
+
+    fn read_cfg<Interner: NameInterner>(
+        &self,
+        interner: &mut Interner,
+    ) -> Result<Attribute, Error> {
+        let arguments = self
+            .parse_args_with(Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated)
+            .map_err(|error| Error::Parse(error.to_string()))?;
+        if arguments.len() != 1 {
+            return Err(Error::UnsupportedAttribute {
+                rendered: self.to_token_stream().to_string(),
+            });
+        }
+        let predicate = arguments[0].read_configuration_predicate(interner)?;
+        Ok(Attribute::Cfg(predicate))
     }
 
     fn read_helper_derive<Interner: NameInterner>(

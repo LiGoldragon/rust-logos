@@ -35,7 +35,7 @@ use core_logos::{
     HelperDerive, ImplBlock, ImplTraitType, LifetimeParameter, Match, MatchArm, MethodCall,
     Newtype, Parameter, PathNode, Pattern, PatternElement, QualifiedPath, Receiver,
     ReferenceExpression, ReferenceType, Struct, TupleFieldAccess, TupleVariantPattern,
-    TypeApplication, TypeParameter, TypeReference, Variant, VariantPayload, Visibility,
+    TypeApplication, TypeParameter, TypeReference, Use, Variant, VariantPayload, Visibility,
 };
 use name_table::{Identifier, NameResolver};
 use proc_macro2::TokenStream;
@@ -234,6 +234,10 @@ impl ProjectAttributeMeta for Attribute {
             Attribute::ToolPath(path) => path.project(names),
             Attribute::HelperDerive(helper) => helper.project(names),
             Attribute::Configuration(configuration) => configuration.project(names),
+            Attribute::Cfg(predicate) => {
+                let predicate = predicate.project(names)?;
+                Ok(quote! { cfg(#predicate) })
+            }
         }
     }
 }
@@ -713,6 +717,25 @@ impl ProjectRust for ImplBlock {
     }
 }
 
+impl ProjectRust for Use {
+    fn project<Resolver: NameResolver + ?Sized>(
+        &self,
+        names: &Resolver,
+    ) -> Result<TokenStream, Error> {
+        let attributes = self.attributes.project_preamble(names)?;
+        let visibility = self.visibility.project(names)?;
+        let base = self.base.project(names)?;
+        let group = self
+            .group
+            .iter()
+            .map(|identifier| identifier.project(names))
+            .collect::<Result<Vec<_>, _>>()?;
+        // The `::` between base and group, and the `{…}` brace group, are the
+        // delimiter re-sugaring the owning node chooses.
+        Ok(quote! { #attributes #visibility use #base::{ #(#group),* }; })
+    }
+}
+
 impl ProjectRust for CoreItem {
     fn project<Resolver: NameResolver + ?Sized>(
         &self,
@@ -727,6 +750,7 @@ impl ProjectRust for CoreItem {
             CoreItem::Alias(alias) => alias.project(names),
             CoreItem::ImplBlock(impl_block) => impl_block.project(names),
             CoreItem::Function(function) => function.project(names),
+            CoreItem::Use(use_import) => use_import.project(names),
         }
     }
 }
@@ -763,6 +787,24 @@ impl RustSource {
         names: &Resolver,
     ) -> Result<Self, Error> {
         let tokens = item.project(names)?;
+        let file: syn::File =
+            syn::parse2(tokens).map_err(|error| Error::Project(error.to_string()))?;
+        Ok(Self(prettyplease::unparse(&file)))
+    }
+
+    /// Project several CoreLogos items in a *single* `prettyplease` pass — the
+    /// blank-line layout between them is prettyplease's own (consecutive scalar type
+    /// aliases pack with no blank; a `use` after them takes no blank either). This is
+    /// the block-level render the fixed module prelude needs: the four scalar aliases
+    /// as one blank-free block. For a one-item slice it equals [`Self::project_item`].
+    pub fn project_items<Resolver: NameResolver + ?Sized>(
+        items: &[CoreItem],
+        names: &Resolver,
+    ) -> Result<Self, Error> {
+        let mut tokens = TokenStream::new();
+        for item in items {
+            tokens.extend(item.project(names)?);
+        }
         let file: syn::File =
             syn::parse2(tokens).map_err(|error| Error::Project(error.to_string()))?;
         Ok(Self(prettyplease::unparse(&file)))

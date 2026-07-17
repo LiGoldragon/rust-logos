@@ -53,10 +53,14 @@ fn out_of_subset_constructs_fail_loudly_and_typed() {
             "pub trait Foo {}",
             |e| matches!(e, Error::UnsupportedItem { construct } if construct.contains("trait")),
         ),
-        (
-            "pub use crate::path::Thing;",
-            |e| matches!(e, Error::UnsupportedItem { construct } if construct.contains("use")),
-        ),
+        // A bare `use path::Name;` is out of subset — only the brace-group import
+        // (the module prelude's NOTA import) is modeled.
+        ("pub use crate::path::Thing;", |e| {
+            matches!(e, Error::UnsupportedUseTree { .. })
+        }),
+        ("pub use nota::*;", |e| {
+            matches!(e, Error::UnsupportedUseTree { .. })
+        }),
         // Impl blocks and functions are now in subset, but only for the Tier-1 body
         // vocabulary: an associated const in an impl is still out of subset, and an
         // empty function body is not a single tail expression.
