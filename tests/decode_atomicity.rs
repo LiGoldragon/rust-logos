@@ -61,10 +61,10 @@ fn out_of_subset_constructs_fail_loudly_and_typed() {
         ("pub use nota::*;", |e| {
             matches!(e, Error::UnsupportedUseTree { .. })
         }),
-        // Impl blocks and functions are now in subset, but only for the Tier-1 body
-        // vocabulary: an associated const in an impl is still out of subset, and an
-        // empty function body is not a single tail expression.
-        ("impl Foo { const N: u8 = 0; }", |e| {
+        // Impl blocks and functions are now in subset, and so are associated types
+        // and consts, but a macro member is still out of subset, and an empty
+        // function body is not a single tail expression.
+        ("impl Foo { my_member_macro!(); }", |e| {
             matches!(e, Error::UnsupportedImplItem { .. })
         }),
         ("pub fn run() {}", |e| {

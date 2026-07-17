@@ -4,11 +4,12 @@
 //! in-subset AST to CoreLogos. The principled subset is exactly what CoreLogos
 //! models: the data item kinds (newtype, named-field struct, enum, type alias) plus
 //! impl blocks and functions whose bodies are the closed Tier-1 expression
-//! vocabulary, over the witnessed attribute/visibility/generic/type vocabulary, plus
-//! the brace-group `use` import that heads the module prelude. Every
+//! vocabulary, associated types and consts in impls, `const` items and const-carrying
+//! inline modules, over the witnessed attribute/visibility/generic/type vocabulary,
+//! plus the brace-group `use` import that heads the module prelude. Every
 //! out-of-subset construct — a trait definition, a non-brace-group `use` shape, a
-//! module, a macro, a union, a const generic, an unmodeled attribute, a wire-data
-//! reference or tuple type, or a class-B body statement/expression/pattern —
+//! non-const module, a macro, a union, a const generic, an unmodeled attribute, a
+//! wire-data reference or tuple type, or a Tier-2 body statement/expression/pattern —
 //! produces a **typed loud error naming the construct**. The reader never guesses
 //! and never skips by default.
 //!
@@ -18,11 +19,12 @@
 //! [`crate::codec`]) is what makes a failed decode leave the NameTable untouched.
 
 use core_logos::{
-    Alias, Attribute, Block, Call, Callee, ConfigurationAttribute, ConfigurationPredicate,
-    CoreItem, DeriveGroup, Enumeration, Expression, Field, Function, GenericParameter, Generics,
-    HelperDerive, ImplBlock, ImplTraitType, LifetimeParameter, Match, MatchArm, MethodCall,
-    Newtype, Parameter, PathNode, Pattern, PatternElement, QualifiedPath, Receiver,
-    ReferenceExpression, ReferenceType, Struct, TupleFieldAccess, TupleVariantPattern,
+    Alias, ArrayExpression, AssociatedType, Attribute, Block, Call, Callee, ConfigurationAttribute,
+    ConfigurationPredicate, Const, CoreItem, DeriveGroup, Enumeration, Expression, Field, Function,
+    GenericParameter, Generics, HelperDerive, ImplBlock, ImplItem, ImplTraitType, IntegerLiteral,
+    IntegerRepresentation, LifetimeParameter, Match, MatchArm, MethodCall, Module, Newtype,
+    Parameter, PathNode, Pattern, PatternElement, QualifiedPath, Receiver, ReferenceExpression,
+    ReferenceMutability, ReferenceType, SliceType, Struct, TupleFieldAccess, TupleVariantPattern,
     TypeApplication, TypeParameter, TypeReference, Use, Variant, VariantPayload, Visibility,
 };
 use name_table::{Identifier, Name, NameInterner};
@@ -80,18 +82,14 @@ impl ReadRust for syn::Item {
                 construct: "a trait alias",
             }),
             syn::Item::Use(use_import) => use_import.read(interner),
-            syn::Item::Mod(_) => Err(Error::UnsupportedItem {
-                construct: "a module",
-            }),
+            syn::Item::Mod(module) => module.read(interner),
             syn::Item::Macro(_) => Err(Error::UnsupportedItem {
                 construct: "a macro invocation",
             }),
             syn::Item::Union(_) => Err(Error::UnsupportedItem {
                 construct: "a union",
             }),
-            syn::Item::Const(_) => Err(Error::UnsupportedItem {
-                construct: "a const item",
-            }),
+            syn::Item::Const(const_item) => const_item.read(interner),
             syn::Item::Static(_) => Err(Error::UnsupportedItem {
                 construct: "a static item",
             }),
@@ -273,6 +271,113 @@ impl ReadRust for syn::ItemUse {
             base: PathNode { segments: base },
             group,
         }))
+    }
+}
+
+impl ReadRust for syn::ItemMod {
+    type Logos = CoreItem;
+
+    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<CoreItem, Error> {
+        if self.unsafety.is_some() {
+            return Err(Error::UnsupportedItem {
+                construct: "an unsafe module",
+            });
+        }
+        // Only an inline module (`mod name { … }`) is modeled; a file module
+        // (`mod name;`) has no items to carry.
+        let Some((_brace, items)) = &self.content else {
+            return Err(Error::UnsupportedItem {
+                construct: "a module without an inline body",
+            });
+        };
+        let attributes = self.attrs.read_preamble(interner)?;
+        let visibility = self.vis.read(interner)?;
+        let name = interner.intern(Name::new(self.ident.to_string()));
+        // The witnessed module is the `short_header` const module — its members are
+        // consts. A module carrying an enum, impl, or other item is a broader growth
+        // point (it re-exposes the derive-group trailing-comma layout that a
+        // context-free `DeriveGroup` does not yet carry faithfully), so it stays out
+        // of subset and fails loudly rather than round-tripping wrong.
+        let items = items
+            .iter()
+            .map(|item| match item {
+                syn::Item::Const(const_item) => const_item.read(interner),
+                _ => Err(Error::UnsupportedItem {
+                    construct: "a module with a non-const item",
+                }),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(CoreItem::Module(Module {
+            visibility,
+            attributes,
+            name,
+            items,
+        }))
+    }
+}
+
+impl ReadRust for syn::ItemConst {
+    type Logos = CoreItem;
+
+    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<CoreItem, Error> {
+        Ok(CoreItem::Const(self.read_const(interner)?))
+    }
+}
+
+/// Reading a `const` declaration into a [`Const`] — one verb shared by the top-level
+/// const item, a module const, and an impl-block associated const, because they are
+/// the same node. A const generic parameter or where clause is out of the modeled
+/// shape.
+trait ReadConst {
+    fn read_const<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<Const, Error>;
+}
+
+impl ReadConst for syn::ItemConst {
+    fn read_const<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<Const, Error> {
+        if !self.generics.params.is_empty() || self.generics.where_clause.is_some() {
+            return Err(Error::UnsupportedItem {
+                construct: "a generic const",
+            });
+        }
+        let attributes = self.attrs.read_preamble(interner)?;
+        let visibility = self.vis.read(interner)?;
+        let name = interner.intern(Name::new(self.ident.to_string()));
+        let type_reference = self.ty.read_signature_type(interner)?;
+        let value = self.expr.read(interner)?;
+        Ok(Const {
+            visibility,
+            attributes,
+            name,
+            type_reference,
+            value,
+        })
+    }
+}
+
+impl ReadConst for syn::ImplItemConst {
+    fn read_const<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<Const, Error> {
+        if self.defaultness.is_some() {
+            return Err(Error::UnsupportedImplItem {
+                construct: "a default associated const",
+            });
+        }
+        if !self.generics.params.is_empty() || self.generics.where_clause.is_some() {
+            return Err(Error::UnsupportedImplItem {
+                construct: "a generic associated const",
+            });
+        }
+        let attributes = self.attrs.read_preamble(interner)?;
+        let visibility = self.vis.read(interner)?;
+        let name = interner.intern(Name::new(self.ident.to_string()));
+        let type_reference = self.ty.read_signature_type(interner)?;
+        let value = self.expr.read(interner)?;
+        Ok(Const {
+            visibility,
+            attributes,
+            name,
+            type_reference,
+            value,
+        })
     }
 }
 
@@ -625,12 +730,22 @@ impl ReadTypeReference for syn::Path {
                 syn::PathArguments::AngleBracketed(bracketed) if index == last => {
                     let mut collected = Vec::with_capacity(bracketed.args.len());
                     for argument in &bracketed.args {
-                        let syn::GenericArgument::Type(inner) = argument else {
-                            return Err(Error::UnsupportedType {
-                                construct: "a non-type generic argument",
-                            });
-                        };
-                        collected.push(inner.read(interner)?);
+                        match argument {
+                            syn::GenericArgument::Type(inner) => {
+                                collected.push(inner.read(interner)?);
+                            }
+                            // A lifetime argument (`Formatter<'_>`, an explicit
+                            // `'static`): stored as the interned lifetime name.
+                            syn::GenericArgument::Lifetime(lifetime) => {
+                                let name = interner.intern(Name::new(lifetime.ident.to_string()));
+                                collected.push(TypeReference::Lifetime(name));
+                            }
+                            _ => {
+                                return Err(Error::UnsupportedType {
+                                    construct: "a non-type, non-lifetime generic argument",
+                                });
+                            }
+                        }
                     }
                     arguments = Some(collected);
                 }
@@ -785,44 +900,36 @@ impl ReadRust for syn::ItemImpl {
             }
         };
         let self_type = self.self_ty.read(interner)?;
-        let functions = self
+        let items = self
             .items
             .iter()
-            .map(|item| item.read_impl_function(interner))
+            .map(|item| item.read(interner))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(CoreItem::ImplBlock(ImplBlock {
             attributes,
             generics,
             implemented_trait,
             self_type,
-            functions,
+            items,
         }))
     }
 }
 
-/// Reading one associated item of an impl block as a function — a verb on the
-/// `syn::ImplItem` noun. Only methods are modeled; an associated const, type, or
-/// macro is out of subset.
-trait ReadImplFunction {
-    fn read_impl_function<Interner: NameInterner>(
-        &self,
-        interner: &mut Interner,
-    ) -> Result<Function, Error>;
-}
+impl ReadRust for syn::ImplItem {
+    type Logos = ImplItem;
 
-impl ReadImplFunction for syn::ImplItem {
-    fn read_impl_function<Interner: NameInterner>(
-        &self,
-        interner: &mut Interner,
-    ) -> Result<Function, Error> {
+    /// One associated item of an impl block, dispatched by kind. A method, an
+    /// associated type, and an associated const are modeled; a macro or an
+    /// unrecognized member is out of subset.
+    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<ImplItem, Error> {
         match self {
-            syn::ImplItem::Fn(function) => function.read(interner),
-            syn::ImplItem::Const(_) => Err(Error::UnsupportedImplItem {
-                construct: "an associated const",
-            }),
-            syn::ImplItem::Type(_) => Err(Error::UnsupportedImplItem {
-                construct: "an associated type",
-            }),
+            syn::ImplItem::Fn(function) => Ok(ImplItem::Method(function.read(interner)?)),
+            syn::ImplItem::Type(associated_type) => {
+                Ok(ImplItem::AssociatedType(associated_type.read(interner)?))
+            }
+            syn::ImplItem::Const(associated_const) => Ok(ImplItem::AssociatedConst(
+                associated_const.read_const(interner)?,
+            )),
             syn::ImplItem::Macro(_) => Err(Error::UnsupportedImplItem {
                 construct: "a macro invocation",
             }),
@@ -830,6 +937,36 @@ impl ReadImplFunction for syn::ImplItem {
                 construct: "an unrecognized associated item",
             }),
         }
+    }
+}
+
+impl ReadRust for syn::ImplItemType {
+    type Logos = AssociatedType;
+
+    /// An associated type binding `type <name> = <value>;`. Bounds, generics, and a
+    /// where clause are out of the modeled equality-binding shape.
+    fn read<Interner: NameInterner>(
+        &self,
+        interner: &mut Interner,
+    ) -> Result<AssociatedType, Error> {
+        if self.defaultness.is_some() {
+            return Err(Error::UnsupportedImplItem {
+                construct: "a default associated type",
+            });
+        }
+        if !self.generics.params.is_empty() || self.generics.where_clause.is_some() {
+            return Err(Error::UnsupportedImplItem {
+                construct: "a generic associated type",
+            });
+        }
+        if !self.attrs.is_empty() {
+            return Err(Error::UnsupportedAttribute {
+                rendered: "an attribute on an associated type".to_string(),
+            });
+        }
+        let name = interner.intern(Name::new(self.ident.to_string()));
+        let value = self.ty.read_signature_type(interner)?;
+        Ok(AssociatedType { name, value })
     }
 }
 
@@ -1047,11 +1184,10 @@ impl ReadSignatureType for syn::Type {
     ) -> Result<TypeReference, Error> {
         match self {
             syn::Type::Reference(reference) => {
-                if reference.mutability.is_some() {
-                    return Err(Error::UnsupportedType {
-                        construct: "a `&mut` reference type",
-                    });
-                }
+                let mutability = match reference.mutability {
+                    None => ReferenceMutability::Shared,
+                    Some(_) => ReferenceMutability::Mutable,
+                };
                 let lifetime = reference
                     .lifetime
                     .as_ref()
@@ -1059,8 +1195,13 @@ impl ReadSignatureType for syn::Type {
                 let referent = Box::new(reference.elem.read_signature_type(interner)?);
                 Ok(TypeReference::Reference(ReferenceType {
                     lifetime,
+                    mutability,
                     referent,
                 }))
+            }
+            syn::Type::Slice(slice) => {
+                let element = Box::new(slice.elem.read_signature_type(interner)?);
+                Ok(TypeReference::Slice(SliceType { element }))
             }
             syn::Type::ImplTrait(impl_trait) => {
                 let mut bounds = Vec::with_capacity(impl_trait.bounds.len());
@@ -1170,11 +1311,10 @@ impl ReadRust for syn::Expr {
                 Ok(Expression::Call(Call { callee, arguments }))
             }
             syn::Expr::MethodCall(method_call) => {
-                if method_call.turbofish.is_some() {
-                    return Err(Error::UnsupportedExpression {
-                        construct: "a turbofish method call",
-                    });
-                }
+                let type_arguments = match &method_call.turbofish {
+                    None => Vec::new(),
+                    Some(turbofish) => turbofish.read_turbofish(interner)?,
+                };
                 let receiver = Box::new(method_call.receiver.read(interner)?);
                 let method = interner.intern(Name::new(method_call.method.to_string()));
                 let arguments = method_call
@@ -1185,15 +1325,38 @@ impl ReadRust for syn::Expr {
                 Ok(Expression::MethodCall(MethodCall {
                     receiver,
                     method,
+                    type_arguments,
                     arguments,
                 }))
             }
             syn::Expr::Lit(literal) => match &literal.lit {
                 syn::Lit::Str(string) => Ok(Expression::StringLiteral(string.value())),
+                syn::Lit::Int(integer) => Ok(Expression::IntegerLiteral(integer.read_integer()?)),
                 _ => Err(Error::UnsupportedExpression {
-                    construct: "a non-string literal",
+                    construct: "a non-string, non-integer literal",
                 }),
             },
+            syn::Expr::Array(array) => {
+                let elements = array
+                    .elems
+                    .iter()
+                    .map(|element| element.read(interner))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(Expression::Array(ArrayExpression { elements }))
+            }
+            // A braced block that is a single tail expression carries no Core meaning
+            // beyond the expression itself — the braces are projection re-sugaring
+            // prettyplease re-adds (a nested match-arm body is wrapped this way). A
+            // labeled block or a multi-statement block is a real class-B body and
+            // stays out of subset, enforced by the single-tail `syn::Block` read.
+            syn::Expr::Block(block) => {
+                if block.label.is_some() {
+                    return Err(Error::UnsupportedExpression {
+                        construct: "a labeled block expression",
+                    });
+                }
+                Ok(block.block.read(interner)?.tail_expression)
+            }
             syn::Expr::Match(match_expression) => {
                 let scrutinee = Box::new(match_expression.expr.read(interner)?);
                 let arms = match_expression
@@ -1259,6 +1422,88 @@ impl ReadCallee for syn::Expr {
             },
             member,
         }))
+    }
+}
+
+/// Reading a turbofish argument list `::<…>` — a verb on the
+/// `syn::AngleBracketedGenericArguments` noun the method call carries. The witnessed
+/// turbofish is a single type (`parse::<Self>()`); a lifetime is accepted for
+/// symmetry with type-application arguments.
+trait ReadTurbofish {
+    fn read_turbofish<Interner: NameInterner>(
+        &self,
+        interner: &mut Interner,
+    ) -> Result<Vec<TypeReference>, Error>;
+}
+
+impl ReadTurbofish for syn::AngleBracketedGenericArguments {
+    fn read_turbofish<Interner: NameInterner>(
+        &self,
+        interner: &mut Interner,
+    ) -> Result<Vec<TypeReference>, Error> {
+        self.args
+            .iter()
+            .map(|argument| match argument {
+                syn::GenericArgument::Type(inner) => inner.read(interner),
+                syn::GenericArgument::Lifetime(lifetime) => Ok(TypeReference::Lifetime(
+                    interner.intern(Name::new(lifetime.ident.to_string())),
+                )),
+                _ => Err(Error::UnsupportedExpression {
+                    construct: "a non-type turbofish argument",
+                }),
+            })
+            .collect()
+    }
+}
+
+/// Reading an integer literal into stringless data — a verb on the `syn::LitInt`
+/// noun. The value comes from the decimal normalization; the surface form (decimal
+/// or zero-padded lowercase hexadecimal) becomes a closed [`IntegerRepresentation`],
+/// so no raw token text is stored. A suffix, a digit separator, an uppercase-hex
+/// digit, or a binary/octal radix is outside the closed modeled form.
+trait ReadInteger {
+    fn read_integer(&self) -> Result<IntegerLiteral, Error>;
+}
+
+impl ReadInteger for syn::LitInt {
+    fn read_integer(&self) -> Result<IntegerLiteral, Error> {
+        if !self.suffix().is_empty() {
+            return Err(Error::UnsupportedExpression {
+                construct: "a suffixed integer literal",
+            });
+        }
+        let text = self.to_string();
+        if text.contains('_') {
+            return Err(Error::UnsupportedExpression {
+                construct: "an integer literal with digit separators",
+            });
+        }
+        let value =
+            self.base10_digits()
+                .parse::<u128>()
+                .map_err(|_| Error::UnsupportedExpression {
+                    construct: "an integer literal out of the 128-bit range",
+                })?;
+        let representation = if let Some(hexadecimal) = text.strip_prefix("0x") {
+            if hexadecimal.chars().any(|digit| digit.is_ascii_uppercase()) {
+                return Err(Error::UnsupportedExpression {
+                    construct: "an uppercase-hexadecimal integer literal",
+                });
+            }
+            IntegerRepresentation::Hexadecimal {
+                minimum_digits: hexadecimal.len() as u16,
+            }
+        } else if text.starts_with("0b") || text.starts_with("0o") {
+            return Err(Error::UnsupportedExpression {
+                construct: "a binary or octal integer literal",
+            });
+        } else {
+            IntegerRepresentation::Decimal
+        };
+        Ok(IntegerLiteral {
+            value,
+            representation,
+        })
     }
 }
 
@@ -1358,7 +1603,6 @@ impl UnsupportedExpressionKind for syn::Expr {
         match self {
             syn::Expr::Struct(_) => "a struct literal",
             syn::Expr::If(_) => "an if expression",
-            syn::Expr::Block(_) => "a block expression",
             syn::Expr::Loop(_) => "a loop expression",
             syn::Expr::While(_) => "a while expression",
             syn::Expr::ForLoop(_) => "a for expression",
@@ -1366,7 +1610,6 @@ impl UnsupportedExpressionKind for syn::Expr {
             syn::Expr::Binary(_) => "a binary-operator expression",
             syn::Expr::Unary(_) => "a unary-operator expression",
             syn::Expr::Tuple(_) => "a tuple expression",
-            syn::Expr::Array(_) => "an array expression",
             syn::Expr::Index(_) => "an index expression",
             syn::Expr::Return(_) => "a return expression",
             syn::Expr::Let(_) => "a let expression",

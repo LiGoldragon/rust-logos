@@ -54,8 +54,9 @@ fn out_of_vocabulary_bodies_fail_loudly_and_typed() {
         ("impl A { fn f(&mut self) -> u8 { self.0 } }", |e| {
             matches!(e, Error::UnsupportedFunctionSignature { .. })
         }),
-        // An associated const in an impl block.
-        ("impl A { const N: u8 = 0; }", |e| {
+        // A macro member in an impl block (associated types and consts are now in
+        // subset, but a macro member is not).
+        ("impl A { my_member_macro!(); }", |e| {
             matches!(e, Error::UnsupportedImplItem { .. })
         }),
         // An `impl Trait` type in field position stays out of subset (the signature

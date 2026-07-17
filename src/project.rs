@@ -30,11 +30,12 @@
 //! in the CoreLogos value and transcribed.
 
 use core_logos::{
-    Alias, Attribute, Block, Call, Callee, ConfigurationAttribute, ConfigurationPredicate,
-    CoreItem, DeriveGroup, Enumeration, Expression, Field, Function, GenericParameter, Generics,
-    HelperDerive, ImplBlock, ImplTraitType, LifetimeParameter, Match, MatchArm, MethodCall,
-    Newtype, Parameter, PathNode, Pattern, PatternElement, QualifiedPath, Receiver,
-    ReferenceExpression, ReferenceType, Struct, TupleFieldAccess, TupleVariantPattern,
+    Alias, ArrayExpression, AssociatedType, Attribute, Block, Call, Callee, ConfigurationAttribute,
+    ConfigurationPredicate, Const, CoreItem, DeriveGroup, Enumeration, Expression, Field, Function,
+    GenericParameter, Generics, HelperDerive, ImplBlock, ImplItem, ImplTraitType, IntegerLiteral,
+    IntegerRepresentation, LifetimeParameter, Match, MatchArm, MethodCall, Module, Newtype,
+    Parameter, PathNode, Pattern, PatternElement, QualifiedPath, Receiver, ReferenceExpression,
+    ReferenceMutability, ReferenceType, SliceType, Struct, TupleFieldAccess, TupleVariantPattern,
     TypeApplication, TypeParameter, TypeReference, Use, Variant, VariantPayload, Visibility,
 };
 use name_table::{Identifier, NameResolver};
@@ -134,6 +135,8 @@ impl ProjectRust for TypeReference {
             TypeReference::Application(application) => application.project(names),
             TypeReference::Reference(reference) => reference.project(names),
             TypeReference::ImplTrait(impl_trait) => impl_trait.project(names),
+            TypeReference::Slice(slice) => slice.project(names),
+            TypeReference::Lifetime(lifetime) => lifetime.project_lifetime(names),
         }
     }
 }
@@ -144,13 +147,28 @@ impl ProjectRust for ReferenceType {
         names: &Resolver,
     ) -> Result<TokenStream, Error> {
         let referent = self.referent.project(names)?;
+        let mutable = match self.mutability {
+            ReferenceMutability::Shared => TokenStream::new(),
+            ReferenceMutability::Mutable => quote! { mut },
+        };
         match self.lifetime {
-            None => Ok(quote! { & #referent }),
+            None => Ok(quote! { & #mutable #referent }),
             Some(lifetime) => {
                 let lifetime = lifetime.project_lifetime(names)?;
-                Ok(quote! { & #lifetime #referent })
+                Ok(quote! { & #lifetime #mutable #referent })
             }
         }
+    }
+}
+
+impl ProjectRust for SliceType {
+    fn project<Resolver: NameResolver + ?Sized>(
+        &self,
+        names: &Resolver,
+    ) -> Result<TokenStream, Error> {
+        let element = self.element.project(names)?;
+        // The `[…]` slice delimiter — a delimiter re-sugaring the owning node chooses.
+        Ok(quote! { [#element] })
     }
 }
 
@@ -481,7 +499,43 @@ impl ProjectRust for Expression {
             Expression::Call(call) => call.project(names),
             Expression::MethodCall(method_call) => method_call.project(names),
             Expression::Match(match_expression) => match_expression.project(names),
+            Expression::IntegerLiteral(literal) => literal.project(names),
+            Expression::Array(array) => array.project(names),
         }
+    }
+}
+
+impl ProjectRust for IntegerLiteral {
+    fn project<Resolver: NameResolver + ?Sized>(
+        &self,
+        _names: &Resolver,
+    ) -> Result<TokenStream, Error> {
+        // Reconstruct the exact surface text from the value and its closed
+        // representation — no raw token text was stored. Decimal is plain; hexadecimal
+        // is lowercase `0x`, zero-padded to the recorded width.
+        let text = match self.representation {
+            IntegerRepresentation::Decimal => self.value.to_string(),
+            IntegerRepresentation::Hexadecimal { minimum_digits } => {
+                format!("0x{:0width$x}", self.value, width = minimum_digits as usize)
+            }
+        };
+        text.parse::<TokenStream>()
+            .map_err(|error| Error::Project(error.to_string()))
+    }
+}
+
+impl ProjectRust for ArrayExpression {
+    fn project<Resolver: NameResolver + ?Sized>(
+        &self,
+        names: &Resolver,
+    ) -> Result<TokenStream, Error> {
+        let elements = self
+            .elements
+            .iter()
+            .map(|element| element.project(names))
+            .collect::<Result<Vec<_>, _>>()?;
+        // The `[…]` array delimiter — a delimiter re-sugaring the owning node chooses.
+        Ok(quote! { [#(#elements),*] })
     }
 }
 
@@ -557,12 +611,22 @@ impl ProjectRust for MethodCall {
     ) -> Result<TokenStream, Error> {
         let receiver = self.receiver.project(names)?;
         let method = self.method.project(names)?;
+        let turbofish = if self.type_arguments.is_empty() {
+            TokenStream::new()
+        } else {
+            let type_arguments = self
+                .type_arguments
+                .iter()
+                .map(|type_argument| type_argument.project(names))
+                .collect::<Result<Vec<_>, _>>()?;
+            quote! { ::<#(#type_arguments),*> }
+        };
         let arguments = self
             .arguments
             .iter()
             .map(|argument| argument.project(names))
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(quote! { #receiver.#method(#(#arguments),*) })
+        Ok(quote! { #receiver.#method #turbofish (#(#arguments),*) })
     }
 }
 
@@ -701,10 +765,10 @@ impl ProjectRust for ImplBlock {
         let attributes = self.attributes.project_preamble(names)?;
         let generics = self.generics.project(names)?;
         let self_type = self.self_type.project(names)?;
-        let functions = self
-            .functions
+        let items = self
+            .items
             .iter()
-            .map(|function| function.project(names))
+            .map(|item| item.project(names))
             .collect::<Result<Vec<_>, _>>()?;
         let head = match &self.implemented_trait {
             None => quote! { impl #generics #self_type },
@@ -713,7 +777,64 @@ impl ProjectRust for ImplBlock {
                 quote! { impl #generics #implemented_trait for #self_type }
             }
         };
-        Ok(quote! { #attributes #head { #(#functions)* } })
+        Ok(quote! { #attributes #head { #(#items)* } })
+    }
+}
+
+impl ProjectRust for ImplItem {
+    fn project<Resolver: NameResolver + ?Sized>(
+        &self,
+        names: &Resolver,
+    ) -> Result<TokenStream, Error> {
+        match self {
+            ImplItem::Method(function) => function.project(names),
+            ImplItem::AssociatedType(associated_type) => associated_type.project(names),
+            ImplItem::AssociatedConst(associated_const) => associated_const.project(names),
+        }
+    }
+}
+
+impl ProjectRust for AssociatedType {
+    fn project<Resolver: NameResolver + ?Sized>(
+        &self,
+        names: &Resolver,
+    ) -> Result<TokenStream, Error> {
+        let name = self.name.project(names)?;
+        let value = self.value.project(names)?;
+        Ok(quote! { type #name = #value; })
+    }
+}
+
+impl ProjectRust for Const {
+    fn project<Resolver: NameResolver + ?Sized>(
+        &self,
+        names: &Resolver,
+    ) -> Result<TokenStream, Error> {
+        let attributes = self.attributes.project_preamble(names)?;
+        let visibility = self.visibility.project(names)?;
+        let name = self.name.project(names)?;
+        let type_reference = self.type_reference.project(names)?;
+        let value = self.value.project(names)?;
+        Ok(quote! { #attributes #visibility const #name: #type_reference = #value; })
+    }
+}
+
+impl ProjectRust for Module {
+    fn project<Resolver: NameResolver + ?Sized>(
+        &self,
+        names: &Resolver,
+    ) -> Result<TokenStream, Error> {
+        let attributes = self.attributes.project_preamble(names)?;
+        let visibility = self.visibility.project(names)?;
+        let name = self.name.project(names)?;
+        let items = self
+            .items
+            .iter()
+            .map(|item| item.project(names))
+            .collect::<Result<Vec<_>, _>>()?;
+        // The `{…}` inline-module delimiter — a delimiter re-sugaring the owning node
+        // chooses.
+        Ok(quote! { #attributes #visibility mod #name { #(#items)* } })
     }
 }
 
@@ -751,6 +872,8 @@ impl ProjectRust for CoreItem {
             CoreItem::ImplBlock(impl_block) => impl_block.project(names),
             CoreItem::Function(function) => function.project(names),
             CoreItem::Use(use_import) => use_import.project(names),
+            CoreItem::Const(const_item) => const_item.project(names),
+            CoreItem::Module(module) => module.project(names),
         }
     }
 }

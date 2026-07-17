@@ -72,42 +72,61 @@ The two-way subset is exactly the constructs CoreLogos models as data:
   `cfg_attr(feature = "...", …)` wrapper, and a namespaced helper `derive` — and
   **impl blocks and functions whose bodies are the closed Tier-1 expression
   vocabulary** (`self`, `&self.0`, `self.0`, plain and trait-qualified path calls,
-  method calls, string literals, and matches over variant patterns; a single
-  tail-expression body).
+  method calls with an optional turbofish, string/integer/array literals, and matches
+  over variant patterns including a nested match; a single tail-expression body). The
+  layout-3 kernel extension added **associated types and associated consts in impl
+  blocks** (`type Err = …;`, `const HEADS: &'static [&'static str] = &[…];`),
+  **top-level `const` items and const-carrying inline modules** (the `short_header`
+  stub), and the signature/const-type shapes those need — `&mut`, `[…]` slice types,
+  and `'_` lifetime arguments.
 - **Out of subset (fails loudly, typed):** trait definitions, `use` re-exports,
-  modules, macros, unions, const generics, `where` clauses, non-path types in
-  wire-data position (references, tuples, trait objects, …), non-feature cfg
-  predicates, name-value attributes, tuple newtypes with a visibility-qualified
-  field, enum variants with attributes or discriminants, associated consts/types in
-  an impl, and **class-B function bodies** — `let` bindings, early `return`,
-  struct-literal construction, named field access, `&mut`, closures, non-string
-  literals, or a wildcard match arm. Each is a distinct `Error` variant naming the
-  construct; the decoder never guesses and never skips.
+  a module carrying a non-const member, a file module (`mod name;`), macros, unions,
+  const generics, `where` clauses, non-path types in wire-data position (references,
+  tuples, trait objects, …), non-feature cfg predicates, name-value attributes, tuple
+  newtypes with a visibility-qualified field, enum variants with attributes or
+  discriminants, a `&mut self` receiver, an integer literal that is suffixed,
+  uppercase-hex, digit-separated, or a binary/octal radix, and **class-B statement
+  bodies** — `let` bindings, early `return`, struct-literal construction, named field
+  access, closures, a non-string/non-integer literal, or a wildcard match arm. Each
+  is a distinct `Error` variant naming the construct; the decoder never guesses and
+  never skips.
 
 ## The type subset is position-aware
 
-A reference (`&String`) and an `impl Trait` bound (`impl Into<String>`) are in subset
-in **function-signature position** (a parameter or return type) and out of subset in
-**wire-data position** (a struct field, an enum-variant payload, a newtype's wrapped
-type, an alias target). This is not a special case bolted on: wire data is owned, and
-a borrowed or `impl`-typed field is a genuinely different thing from a borrowed return.
-The reader encodes the distinction as two verbs on the type noun — `ReadRust` for
-wire-data types (strict: references and `impl Trait` fail loudly) and
-`ReadSignatureType` for signature types (relaxed) — while projection is uniform,
-because a reference type projects to `&T` wherever it sits.
+A reference (`&String`, `&mut Formatter<'_>`), an `impl Trait` bound
+(`impl Into<String>`), and a slice (`[&'static str]`) are in subset in
+**function-signature and const-type position** (a parameter, return, or const type)
+and out of subset in **wire-data position** (a struct field, an enum-variant payload,
+a newtype's wrapped type, an alias target). This is not a special case bolted on:
+wire data is owned, and a borrowed, sliced, or `impl`-typed field is a genuinely
+different thing from a borrowed return. The reader encodes the distinction as two
+verbs on the type noun — `ReadRust` for wire-data types (strict: references, slices,
+and `impl Trait` fail loudly) and `ReadSignatureType` for signature/const types
+(relaxed) — while projection is uniform, because a reference type projects to `&T`
+wherever it sits. A lifetime generic argument (`'_`) is legitimate only inside an
+argument list, never as a standalone type.
 
-## The trait/impl frontier: Tier-1 realized, class-B and traits still open
+## The frontier: class-B/C/D realized, Tier-2 bodies and traits still open
 
-The impl-block surface that was the honest frontier is now **Tier-1 realized**: the
-`From`/constructor/route/name-table formulaic impls the wire goldens carry decode and
-re-encode byte-exact (317 corpus items across the four goldens, up from the
-data-item-only count). What remains out of subset is the **class-B frontier** — impls
-whose bodies carry `let` bindings, early returns, struct-literal construction, or
-`&mut` (the `encode_signal_frame`/`Signal::new`/`Display` family) — and **trait
-definitions**. This stays the honest edge: the subset grows further precisely when
-(and if) Logos gains a class-B body vocabulary or a trait-definition node. A new
-modeled construct is one CoreLogos node plus one `project` arm plus one `read` arm,
-with no central walker to thread.
+The layout-3 kernel extension moved the frontier again. The goldens' interface-enum
+ergonomics (class B — constructor and `From` impls, and the cfg-gated
+`FromStr`/`Display` impls with their associated types and `&mut Formatter<'_>`
+signatures), their trace/object-name enums with nested-match `name` methods (class D),
+and their const/const-module/associated-const stub items (class C) now decode and
+re-encode byte-exact. The corpus rose to **351 in-subset items round-tripped
+byte-exact across the four goldens** (up from 319; spirit_generated.rs 61 → 69), with
+**102 out-of-subset** at the remaining frontier.
+
+What remains out of subset is the **Tier-2 body frontier** — the relocation-bound
+`encode_signal_frame`/`decode_signal_frame`/`into_frame` family whose bodies carry
+`let` bindings, early returns, and struct-literal construction — plus **trait
+definitions** and **general (non-const) modules** (the `pub mod schema { … }` wrapper,
+whose enum derive re-exposes a context-dependent trailing-comma layout a context-free
+`DeriveGroup` does not yet carry faithfully). This stays the honest edge: the subset
+grows further precisely when Logos gains a Tier-2 statement-body vocabulary, a
+trait-definition node, or a trailing-comma-faithful derive group. A new modeled
+construct is one CoreLogos node plus one `project` arm plus one `read` arm, with no
+central walker to thread.
 
 ### Named revisable lean (the Tier-1 boundary)
 
