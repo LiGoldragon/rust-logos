@@ -2,12 +2,14 @@
 //!
 //! Decode never re-implements Rust's grammar — it parses with `syn` and maps the
 //! in-subset AST to CoreLogos. The principled subset is exactly what CoreLogos
-//! models: the four item kinds (newtype, named-field struct, enum, type alias) over
-//! the witnessed attribute/visibility/generic/type vocabulary. Every out-of-subset
-//! construct — a trait definition, an impl block, a free function, a `use`
-//! re-export, a module, a macro, a union, a const generic, an unmodeled attribute,
-//! a reference or tuple type — produces a **typed loud error naming the
-//! construct**. The reader never guesses and never skips by default.
+//! models: the data item kinds (newtype, named-field struct, enum, type alias) plus
+//! impl blocks and functions whose bodies are the closed Tier-1 expression
+//! vocabulary, over the witnessed attribute/visibility/generic/type vocabulary.
+//! Every out-of-subset construct — a trait definition, a `use` re-export, a module,
+//! a macro, a union, a const generic, an unmodeled attribute, a wire-data reference
+//! or tuple type, or a class-B body statement/expression/pattern — produces a
+//! **typed loud error naming the construct**. The reader never guesses and never
+//! skips by default.
 //!
 //! The verb belongs to the noun being read: [`ReadRust`] is implemented on the
 //! `syn` AST nodes, each producing its CoreLogos counterpart and interning names
@@ -15,12 +17,14 @@
 //! [`crate::codec`]) is what makes a failed decode leave the NameTable untouched.
 
 use core_logos::{
-    Alias, Attribute, ConfigurationAttribute, ConfigurationPredicate, CoreItem, DeriveGroup,
-    Enumeration, Field, GenericParameter, Generics, HelperDerive, LifetimeParameter, Newtype,
-    PathNode, Struct, TypeApplication, TypeParameter, TypeReference, Variant, VariantPayload,
-    Visibility,
+    Alias, Attribute, Block, Call, Callee, ConfigurationAttribute, ConfigurationPredicate,
+    CoreItem, DeriveGroup, Enumeration, Expression, Field, Function, GenericParameter, Generics,
+    HelperDerive, ImplBlock, ImplTraitType, LifetimeParameter, Match, MatchArm, MethodCall,
+    Newtype, Parameter, PathNode, Pattern, PatternElement, QualifiedPath, Receiver,
+    ReferenceExpression, ReferenceType, Struct, TupleFieldAccess, TupleVariantPattern,
+    TypeApplication, TypeParameter, TypeReference, Variant, VariantPayload, Visibility,
 };
-use name_table::{Name, NameInterner};
+use name_table::{Identifier, Name, NameInterner};
 use quote::ToTokens;
 use syn::parse::Parse;
 use syn::punctuated::Punctuated;
@@ -66,17 +70,13 @@ impl ReadRust for syn::Item {
             syn::Item::Struct(structure) => structure.read(interner),
             syn::Item::Enum(enumeration) => enumeration.read(interner),
             syn::Item::Type(alias) => alias.read(interner),
+            syn::Item::Impl(impl_block) => impl_block.read(interner),
+            syn::Item::Fn(function) => function.read(interner),
             syn::Item::Trait(_) => Err(Error::UnsupportedItem {
                 construct: "a trait definition",
             }),
             syn::Item::TraitAlias(_) => Err(Error::UnsupportedItem {
                 construct: "a trait alias",
-            }),
-            syn::Item::Impl(_) => Err(Error::UnsupportedItem {
-                construct: "an impl block",
-            }),
-            syn::Item::Fn(_) => Err(Error::UnsupportedItem {
-                construct: "a free function",
             }),
             syn::Item::Use(_) => Err(Error::UnsupportedItem {
                 construct: "a use re-export",
@@ -648,6 +648,667 @@ impl ReadRust for syn::GenericParam {
             syn::GenericParam::Const(_) => Err(Error::UnsupportedGenericParameter {
                 construct: "a const generic parameter",
             }),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Impl blocks, functions, and the Tier-1 body vocabulary.
+//
+// The verb still belongs to the syn node being read. An impl block reads its
+// attributes, generics, optional implemented trait, self type, and member
+// functions; a function reads its signature parts and single-tail-expression body;
+// and the body reads into the closed Tier-1 expression/pattern vocabulary. Every
+// out-of-vocabulary construct is a typed loud error that names it, and the whole
+// item fails atomically so a class-B body leaks no name.
+// ---------------------------------------------------------------------------
+
+impl ReadRust for syn::ItemImpl {
+    type Logos = CoreItem;
+
+    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<CoreItem, Error> {
+        if self.unsafety.is_some() {
+            return Err(Error::UnsupportedItem {
+                construct: "an unsafe impl",
+            });
+        }
+        if self.defaultness.is_some() {
+            return Err(Error::UnsupportedItem {
+                construct: "a default impl",
+            });
+        }
+        let attributes = self.attrs.read_preamble(interner)?;
+        let generics = self.generics.read(interner)?;
+        let implemented_trait = match &self.trait_ {
+            None => None,
+            Some((bang, path, _for)) => {
+                if bang.is_some() {
+                    return Err(Error::UnsupportedItem {
+                        construct: "a negative impl",
+                    });
+                }
+                Some(path.read_type_reference(interner)?)
+            }
+        };
+        let self_type = self.self_ty.read(interner)?;
+        let functions = self
+            .items
+            .iter()
+            .map(|item| item.read_impl_function(interner))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(CoreItem::ImplBlock(ImplBlock {
+            attributes,
+            generics,
+            implemented_trait,
+            self_type,
+            functions,
+        }))
+    }
+}
+
+/// Reading one associated item of an impl block as a function — a verb on the
+/// `syn::ImplItem` noun. Only methods are modeled; an associated const, type, or
+/// macro is out of subset.
+trait ReadImplFunction {
+    fn read_impl_function<Interner: NameInterner>(
+        &self,
+        interner: &mut Interner,
+    ) -> Result<Function, Error>;
+}
+
+impl ReadImplFunction for syn::ImplItem {
+    fn read_impl_function<Interner: NameInterner>(
+        &self,
+        interner: &mut Interner,
+    ) -> Result<Function, Error> {
+        match self {
+            syn::ImplItem::Fn(function) => function.read(interner),
+            syn::ImplItem::Const(_) => Err(Error::UnsupportedImplItem {
+                construct: "an associated const",
+            }),
+            syn::ImplItem::Type(_) => Err(Error::UnsupportedImplItem {
+                construct: "an associated type",
+            }),
+            syn::ImplItem::Macro(_) => Err(Error::UnsupportedImplItem {
+                construct: "a macro invocation",
+            }),
+            _ => Err(Error::UnsupportedImplItem {
+                construct: "an unrecognized associated item",
+            }),
+        }
+    }
+}
+
+impl ReadRust for syn::ImplItemFn {
+    type Logos = Function;
+
+    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<Function, Error> {
+        if self.defaultness.is_some() {
+            return Err(Error::UnsupportedFunctionSignature {
+                construct: "a default method",
+            });
+        }
+        let attributes = self.attrs.read_preamble(interner)?;
+        let visibility = self.vis.read(interner)?;
+        let parts = self.sig.read_function_signature(interner)?;
+        let body = self.block.read(interner)?;
+        Ok(parts.into_function(attributes, visibility, body))
+    }
+}
+
+impl ReadRust for syn::ItemFn {
+    type Logos = CoreItem;
+
+    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<CoreItem, Error> {
+        let attributes = self.attrs.read_preamble(interner)?;
+        let visibility = self.vis.read(interner)?;
+        let parts = self.sig.read_function_signature(interner)?;
+        let body = self.block.read(interner)?;
+        Ok(CoreItem::Function(
+            parts.into_function(attributes, visibility, body),
+        ))
+    }
+}
+
+/// The Core parts of a read function signature, assembled into a [`Function`] with
+/// the attributes, visibility, and body the enclosing item supplies.
+struct FunctionSignatureParts {
+    name: Identifier,
+    generics: Generics,
+    receiver: Option<Receiver>,
+    parameters: Vec<Parameter>,
+    return_type: Option<TypeReference>,
+}
+
+impl FunctionSignatureParts {
+    fn into_function(
+        self,
+        attributes: Vec<Attribute>,
+        visibility: Visibility,
+        body: Block,
+    ) -> Function {
+        Function {
+            attributes,
+            visibility,
+            name: self.name,
+            generics: self.generics,
+            receiver: self.receiver,
+            parameters: self.parameters,
+            return_type: self.return_type,
+            body,
+        }
+    }
+}
+
+/// Reading a function signature into its Core parts — a verb on the `syn::Signature`
+/// noun. A Tier-1 signature is a plain function: no `const`/`async`/`unsafe`, no
+/// explicit ABI, no variadic, a `self`/`&self` or absent receiver, identifier
+/// parameters, and a signature-position return type.
+trait ReadFunctionSignature {
+    fn read_function_signature<Interner: NameInterner>(
+        &self,
+        interner: &mut Interner,
+    ) -> Result<FunctionSignatureParts, Error>;
+}
+
+impl ReadFunctionSignature for syn::Signature {
+    fn read_function_signature<Interner: NameInterner>(
+        &self,
+        interner: &mut Interner,
+    ) -> Result<FunctionSignatureParts, Error> {
+        if self.constness.is_some() {
+            return Err(Error::UnsupportedFunctionSignature {
+                construct: "a const function",
+            });
+        }
+        if self.asyncness.is_some() {
+            return Err(Error::UnsupportedFunctionSignature {
+                construct: "an async function",
+            });
+        }
+        if self.unsafety.is_some() {
+            return Err(Error::UnsupportedFunctionSignature {
+                construct: "an unsafe function",
+            });
+        }
+        if self.abi.is_some() {
+            return Err(Error::UnsupportedFunctionSignature {
+                construct: "an explicit-ABI function",
+            });
+        }
+        if self.variadic.is_some() {
+            return Err(Error::UnsupportedFunctionSignature {
+                construct: "a variadic function",
+            });
+        }
+        let name = interner.intern(Name::new(self.ident.to_string()));
+        let generics = self.generics.read(interner)?;
+        let mut receiver = None;
+        let mut parameters = Vec::new();
+        for input in &self.inputs {
+            match input {
+                syn::FnArg::Receiver(syn_receiver) => {
+                    receiver = Some(syn_receiver.read_receiver()?);
+                }
+                syn::FnArg::Typed(pat_type) => {
+                    parameters.push(pat_type.read_parameter(interner)?);
+                }
+            }
+        }
+        let return_type = match &self.output {
+            syn::ReturnType::Default => None,
+            syn::ReturnType::Type(_, ty) => Some(ty.read_signature_type(interner)?),
+        };
+        Ok(FunctionSignatureParts {
+            name,
+            generics,
+            receiver,
+            parameters,
+            return_type,
+        })
+    }
+}
+
+/// Reading a method receiver — a verb on the `syn::Receiver` noun. Only `self` by
+/// value and `&self` by shared reference are modeled.
+trait ReadReceiver {
+    fn read_receiver(&self) -> Result<Receiver, Error>;
+}
+
+impl ReadReceiver for syn::Receiver {
+    fn read_receiver(&self) -> Result<Receiver, Error> {
+        if self.colon_token.is_some() {
+            return Err(Error::UnsupportedFunctionSignature {
+                construct: "a typed self receiver",
+            });
+        }
+        if self.mutability.is_some() {
+            return Err(Error::UnsupportedFunctionSignature {
+                construct: "a `mut` self receiver",
+            });
+        }
+        match &self.reference {
+            None => Ok(Receiver::Value),
+            Some((_, lifetime)) => {
+                if lifetime.is_some() {
+                    return Err(Error::UnsupportedFunctionSignature {
+                        construct: "a lifetime-annotated self receiver",
+                    });
+                }
+                Ok(Receiver::Reference)
+            }
+        }
+    }
+}
+
+/// Reading a typed parameter — a verb on the `syn::PatType` noun. The pattern must
+/// be a plain identifier; the type is a signature-position type.
+trait ReadParameter {
+    fn read_parameter<Interner: NameInterner>(
+        &self,
+        interner: &mut Interner,
+    ) -> Result<Parameter, Error>;
+}
+
+impl ReadParameter for syn::PatType {
+    fn read_parameter<Interner: NameInterner>(
+        &self,
+        interner: &mut Interner,
+    ) -> Result<Parameter, Error> {
+        let syn::Pat::Ident(ident) = &*self.pat else {
+            return Err(Error::UnsupportedFunctionSignature {
+                construct: "a non-identifier parameter pattern",
+            });
+        };
+        if ident.by_ref.is_some() || ident.mutability.is_some() || ident.subpat.is_some() {
+            return Err(Error::UnsupportedFunctionSignature {
+                construct: "a complex parameter binding",
+            });
+        }
+        let name = interner.intern(Name::new(ident.ident.to_string()));
+        let type_reference = self.ty.read_signature_type(interner)?;
+        Ok(Parameter {
+            name,
+            type_reference,
+        })
+    }
+}
+
+/// Reading a type in *function-signature position*, where a shared reference and an
+/// `impl Trait` bound list are in subset (they never are in wire-data field
+/// position) — a verb on the type noun distinct from the wire-data [`ReadRust`]
+/// read. Path and application types delegate to the wire-data read; `&mut` and every
+/// other type kind fail loudly there.
+trait ReadSignatureType {
+    fn read_signature_type<Interner: NameInterner>(
+        &self,
+        interner: &mut Interner,
+    ) -> Result<TypeReference, Error>;
+}
+
+impl ReadSignatureType for syn::Type {
+    fn read_signature_type<Interner: NameInterner>(
+        &self,
+        interner: &mut Interner,
+    ) -> Result<TypeReference, Error> {
+        match self {
+            syn::Type::Reference(reference) => {
+                if reference.mutability.is_some() {
+                    return Err(Error::UnsupportedType {
+                        construct: "a `&mut` reference type",
+                    });
+                }
+                let lifetime = reference
+                    .lifetime
+                    .as_ref()
+                    .map(|lifetime| interner.intern(Name::new(lifetime.ident.to_string())));
+                let referent = Box::new(reference.elem.read_signature_type(interner)?);
+                Ok(TypeReference::Reference(ReferenceType {
+                    lifetime,
+                    referent,
+                }))
+            }
+            syn::Type::ImplTrait(impl_trait) => {
+                let mut bounds = Vec::with_capacity(impl_trait.bounds.len());
+                for bound in &impl_trait.bounds {
+                    let syn::TypeParamBound::Trait(trait_bound) = bound else {
+                        return Err(Error::UnsupportedType {
+                            construct: "a non-trait bound in an impl-Trait type",
+                        });
+                    };
+                    if !matches!(trait_bound.modifier, syn::TraitBoundModifier::None) {
+                        return Err(Error::UnsupportedType {
+                            construct: "a `?Sized` bound in an impl-Trait type",
+                        });
+                    }
+                    if trait_bound.lifetimes.is_some() {
+                        return Err(Error::UnsupportedType {
+                            construct: "a higher-ranked bound in an impl-Trait type",
+                        });
+                    }
+                    bounds.push(trait_bound.path.read_type_reference(interner)?);
+                }
+                Ok(TypeReference::ImplTrait(ImplTraitType { bounds }))
+            }
+            _ => self.read(interner),
+        }
+    }
+}
+
+impl ReadRust for syn::Block {
+    type Logos = Block;
+
+    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<Block, Error> {
+        if self.stmts.len() != 1 {
+            return Err(Error::UnsupportedStatement {
+                construct: if self.stmts.is_empty() {
+                    "an empty body"
+                } else {
+                    "a multi-statement body"
+                },
+            });
+        }
+        match &self.stmts[0] {
+            syn::Stmt::Expr(expression, None) => Ok(Block {
+                tail_expression: expression.read(interner)?,
+            }),
+            syn::Stmt::Expr(_, Some(_)) => Err(Error::UnsupportedStatement {
+                construct: "a semicolon-terminated expression statement",
+            }),
+            syn::Stmt::Local(_) => Err(Error::UnsupportedStatement {
+                construct: "a `let` binding",
+            }),
+            syn::Stmt::Item(_) => Err(Error::UnsupportedStatement {
+                construct: "a nested item",
+            }),
+            syn::Stmt::Macro(_) => Err(Error::UnsupportedStatement {
+                construct: "a macro statement",
+            }),
+        }
+    }
+}
+
+impl ReadRust for syn::Expr {
+    type Logos = Expression;
+
+    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<Expression, Error> {
+        match self {
+            syn::Expr::Path(path_expression) => {
+                if path_expression.qself.is_some() {
+                    return Err(Error::UnsupportedExpression {
+                        construct: "a qualified-path value expression",
+                    });
+                }
+                if path_expression.path.is_ident("self") {
+                    return Ok(Expression::Receiver);
+                }
+                Ok(Expression::Path(path_expression.path.read(interner)?))
+            }
+            syn::Expr::Reference(reference) => {
+                if reference.mutability.is_some() {
+                    return Err(Error::UnsupportedExpression {
+                        construct: "a `&mut` borrow",
+                    });
+                }
+                Ok(Expression::Reference(ReferenceExpression {
+                    referent: Box::new(reference.expr.read(interner)?),
+                }))
+            }
+            syn::Expr::Field(field) => {
+                let base = Box::new(field.base.read(interner)?);
+                match &field.member {
+                    syn::Member::Unnamed(index) => Ok(Expression::Field(TupleFieldAccess {
+                        base,
+                        index: index.index,
+                    })),
+                    syn::Member::Named(_) => Err(Error::UnsupportedExpression {
+                        construct: "a named field access",
+                    }),
+                }
+            }
+            syn::Expr::Call(call) => {
+                let callee = call.func.read_callee(interner)?;
+                let arguments = call
+                    .args
+                    .iter()
+                    .map(|argument| argument.read(interner))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(Expression::Call(Call { callee, arguments }))
+            }
+            syn::Expr::MethodCall(method_call) => {
+                if method_call.turbofish.is_some() {
+                    return Err(Error::UnsupportedExpression {
+                        construct: "a turbofish method call",
+                    });
+                }
+                let receiver = Box::new(method_call.receiver.read(interner)?);
+                let method = interner.intern(Name::new(method_call.method.to_string()));
+                let arguments = method_call
+                    .args
+                    .iter()
+                    .map(|argument| argument.read(interner))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(Expression::MethodCall(MethodCall {
+                    receiver,
+                    method,
+                    arguments,
+                }))
+            }
+            syn::Expr::Lit(literal) => match &literal.lit {
+                syn::Lit::Str(string) => Ok(Expression::StringLiteral(string.value())),
+                _ => Err(Error::UnsupportedExpression {
+                    construct: "a non-string literal",
+                }),
+            },
+            syn::Expr::Match(match_expression) => {
+                let scrutinee = Box::new(match_expression.expr.read(interner)?);
+                let arms = match_expression
+                    .arms
+                    .iter()
+                    .map(|arm| arm.read(interner))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(Expression::Match(Match { scrutinee, arms }))
+            }
+            other => Err(Error::UnsupportedExpression {
+                construct: other.unsupported_expression_kind(),
+            }),
+        }
+    }
+}
+
+/// Reading a call callee — a verb on the `syn::Expr` noun that heads a call. The
+/// callee is a plain path (`Self`, `Self::new`, `RecordIdentifier::new`) or a
+/// trait-qualified path (`<Self as Trait>::method`).
+trait ReadCallee {
+    fn read_callee<Interner: NameInterner>(&self, interner: &mut Interner)
+    -> Result<Callee, Error>;
+}
+
+impl ReadCallee for syn::Expr {
+    fn read_callee<Interner: NameInterner>(
+        &self,
+        interner: &mut Interner,
+    ) -> Result<Callee, Error> {
+        let syn::Expr::Path(path_expression) = self else {
+            return Err(Error::UnsupportedExpression {
+                construct: "a non-path call callee",
+            });
+        };
+        let Some(qself) = &path_expression.qself else {
+            return Ok(Callee::Path(path_expression.path.read(interner)?));
+        };
+        if qself.position == 0 {
+            return Err(Error::UnsupportedExpression {
+                construct: "a qualified path without a trait",
+            });
+        }
+        let self_type = qself.ty.read(interner)?;
+        let mut trait_segments = Vec::new();
+        let mut member = Vec::new();
+        for (index, segment) in path_expression.path.segments.iter().enumerate() {
+            if !matches!(segment.arguments, syn::PathArguments::None) {
+                return Err(Error::UnsupportedExpression {
+                    construct: "a generic argument in a qualified path",
+                });
+            }
+            let identifier = interner.intern(Name::new(segment.ident.to_string()));
+            if index < qself.position {
+                trait_segments.push(identifier);
+            } else {
+                member.push(identifier);
+            }
+        }
+        Ok(Callee::Qualified(QualifiedPath {
+            self_type,
+            trait_path: PathNode {
+                segments: trait_segments,
+            },
+            member,
+        }))
+    }
+}
+
+impl ReadRust for syn::Arm {
+    type Logos = MatchArm;
+
+    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<MatchArm, Error> {
+        if self.guard.is_some() {
+            return Err(Error::UnsupportedPattern {
+                construct: "a match guard",
+            });
+        }
+        let pattern = self.pat.read(interner)?;
+        let body = self.body.read(interner)?;
+        Ok(MatchArm { pattern, body })
+    }
+}
+
+impl ReadRust for syn::Pat {
+    type Logos = Pattern;
+
+    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<Pattern, Error> {
+        match self {
+            syn::Pat::Path(path_pattern) => {
+                if path_pattern.qself.is_some() {
+                    return Err(Error::UnsupportedPattern {
+                        construct: "a qualified-path pattern",
+                    });
+                }
+                Ok(Pattern::Path(path_pattern.path.read(interner)?))
+            }
+            syn::Pat::TupleStruct(tuple_struct) => {
+                if tuple_struct.qself.is_some() {
+                    return Err(Error::UnsupportedPattern {
+                        construct: "a qualified tuple-struct pattern",
+                    });
+                }
+                let path = tuple_struct.path.read(interner)?;
+                let elements = tuple_struct
+                    .elems
+                    .iter()
+                    .map(|element| element.read_pattern_element(interner))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(Pattern::TupleVariant(TupleVariantPattern {
+                    path,
+                    elements,
+                }))
+            }
+            other => Err(Error::UnsupportedPattern {
+                construct: other.unsupported_pattern_kind(),
+            }),
+        }
+    }
+}
+
+/// Reading one element of a tuple-variant pattern — a verb on the `syn::Pat` noun.
+/// A wildcard or a plain identifier binding are the modeled elements.
+trait ReadPatternElement {
+    fn read_pattern_element<Interner: NameInterner>(
+        &self,
+        interner: &mut Interner,
+    ) -> Result<PatternElement, Error>;
+}
+
+impl ReadPatternElement for syn::Pat {
+    fn read_pattern_element<Interner: NameInterner>(
+        &self,
+        interner: &mut Interner,
+    ) -> Result<PatternElement, Error> {
+        match self {
+            syn::Pat::Wild(_) => Ok(PatternElement::Wildcard),
+            syn::Pat::Ident(ident) => {
+                if ident.by_ref.is_some() || ident.mutability.is_some() || ident.subpat.is_some() {
+                    return Err(Error::UnsupportedPattern {
+                        construct: "a complex binding sub-pattern",
+                    });
+                }
+                Ok(PatternElement::Binding(
+                    interner.intern(Name::new(ident.ident.to_string())),
+                ))
+            }
+            _ => Err(Error::UnsupportedPattern {
+                construct: "a complex tuple-variant element pattern",
+            }),
+        }
+    }
+}
+
+/// Name the kind of an out-of-vocabulary `syn::Expr` for the loud error — a verb on
+/// the expression noun.
+trait UnsupportedExpressionKind {
+    fn unsupported_expression_kind(&self) -> &'static str;
+}
+
+impl UnsupportedExpressionKind for syn::Expr {
+    fn unsupported_expression_kind(&self) -> &'static str {
+        match self {
+            syn::Expr::Struct(_) => "a struct literal",
+            syn::Expr::If(_) => "an if expression",
+            syn::Expr::Block(_) => "a block expression",
+            syn::Expr::Loop(_) => "a loop expression",
+            syn::Expr::While(_) => "a while expression",
+            syn::Expr::ForLoop(_) => "a for expression",
+            syn::Expr::Closure(_) => "a closure",
+            syn::Expr::Binary(_) => "a binary-operator expression",
+            syn::Expr::Unary(_) => "a unary-operator expression",
+            syn::Expr::Tuple(_) => "a tuple expression",
+            syn::Expr::Array(_) => "an array expression",
+            syn::Expr::Index(_) => "an index expression",
+            syn::Expr::Return(_) => "a return expression",
+            syn::Expr::Let(_) => "a let expression",
+            syn::Expr::Macro(_) => "a macro expression",
+            syn::Expr::Try(_) => "a try (`?`) expression",
+            syn::Expr::Await(_) => "an await expression",
+            syn::Expr::Cast(_) => "a cast expression",
+            syn::Expr::Range(_) => "a range expression",
+            syn::Expr::Paren(_) => "a parenthesized expression",
+            syn::Expr::Group(_) => "a grouped expression",
+            syn::Expr::Assign(_) => "an assignment expression",
+            _ => "an unrecognized expression",
+        }
+    }
+}
+
+/// Name the kind of an out-of-vocabulary `syn::Pat` for the loud error — a verb on
+/// the pattern noun.
+trait UnsupportedPatternKind {
+    fn unsupported_pattern_kind(&self) -> &'static str;
+}
+
+impl UnsupportedPatternKind for syn::Pat {
+    fn unsupported_pattern_kind(&self) -> &'static str {
+        match self {
+            syn::Pat::Wild(_) => "a wildcard arm",
+            syn::Pat::Ident(_) => "a binding (catch-all) arm",
+            syn::Pat::Lit(_) => "a literal pattern",
+            syn::Pat::Struct(_) => "a struct pattern",
+            syn::Pat::Or(_) => "an or-pattern",
+            syn::Pat::Tuple(_) => "a tuple pattern",
+            syn::Pat::Reference(_) => "a reference pattern",
+            syn::Pat::Range(_) => "a range pattern",
+            syn::Pat::Rest(_) => "a rest (`..`) pattern",
+            syn::Pat::Slice(_) => "a slice pattern",
+            _ => "an unrecognized pattern",
         }
     }
 }

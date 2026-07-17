@@ -13,13 +13,45 @@ use thiserror::Error;
 #[derive(Debug, Clone, Error)]
 pub enum Error {
     /// A top-level item kind the CoreLogos algebra does not model — a trait
-    /// definition, an impl block, a free function, a `use` re-export, a module, a
-    /// macro invocation, a union, a const, or a static. The four modeled kinds are
-    /// newtype, named-field struct, enum, and type alias.
-    #[error(
-        "out-of-subset item: {construct} is not one of the four modeled item kinds (newtype, struct, enum, alias)"
-    )]
+    /// definition, a trait alias, a `use` re-export, a module, a macro invocation, a
+    /// union, a const, or a static. The modeled kinds are newtype, named-field
+    /// struct, enum, type alias, impl block, and function.
+    #[error("out-of-subset item: {construct} is not one of the modeled item kinds")]
     UnsupportedItem { construct: &'static str },
+
+    /// An associated item inside an impl block that is not a method — an associated
+    /// const, an associated type, or a macro. Only functions are modeled as impl
+    /// members.
+    #[error("out-of-subset impl item: {construct} (only methods are modeled)")]
+    UnsupportedImplItem { construct: &'static str },
+
+    /// A function signature outside the modeled shape — an `async`/`const`/`unsafe`
+    /// function, an explicit ABI, a variadic, a `&mut self` or `mut self` receiver, a
+    /// typed-`self` receiver, or a parameter whose pattern is not a plain identifier.
+    #[error("out-of-subset function signature: {construct}")]
+    UnsupportedFunctionSignature { construct: &'static str },
+
+    /// A statement in a function or method body. A Tier-1 body is a single tail
+    /// expression, so a `let` binding, an early `return`, a nested item, a macro
+    /// statement, or a semicolon-terminated expression statement is out of subset.
+    #[error(
+        "out-of-subset body statement: {construct} (a Tier-1 body is a single tail expression)"
+    )]
+    UnsupportedStatement { construct: &'static str },
+
+    /// An expression outside the closed Tier-1 body vocabulary — a struct literal, an
+    /// `if`/`loop`/`while`/block expression, a closure, a binary or unary operator, a
+    /// tuple, an index, a `&mut` borrow, a non-string literal, a turbofish call, or a
+    /// named field access.
+    #[error("out-of-subset body expression: {construct}")]
+    UnsupportedExpression { construct: &'static str },
+
+    /// A match-arm pattern outside the closed Tier-1 vocabulary — a wildcard arm, a
+    /// literal pattern, a struct pattern, an or-pattern, a match guard, or a complex
+    /// sub-pattern. The modeled patterns are a unit-like path and a tuple variant of
+    /// wildcards and identifier bindings.
+    #[error("out-of-subset match pattern: {construct}")]
+    UnsupportedPattern { construct: &'static str },
 
     /// A tuple struct with a field count other than one. Only the single-field
     /// tuple newtype (`struct Name(Wrapped);`) is modeled.

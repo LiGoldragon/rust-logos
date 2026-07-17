@@ -67,25 +67,56 @@ The two-way subset is exactly the constructs CoreLogos models as data:
 - **In subset (byte-exact two-way):** tuple newtypes with an inherited-visibility
   field, named-field structs (fields carrying their own stored visibility), unit /
   tuple-payload / struct-payload enums, type aliases, generic parameters by kind
-  (type parameters with path bounds, lifetime parameters), and the witnessed
-  attribute vocabulary — a bare dotted tool path, a `derive(...)` group, a
-  `cfg_attr(feature = "...", …)` wrapper, and a namespaced helper `derive`.
-- **Out of subset (fails loudly, typed):** trait definitions, impl blocks, free
-  functions, `use` re-exports, modules, macros, unions, const generics, `where`
-  clauses, non-path types (references, tuples, trait objects, …), non-feature cfg
+  (type parameters with path bounds, lifetime parameters), the witnessed attribute
+  vocabulary — a bare dotted tool path, a `derive(...)` group, a
+  `cfg_attr(feature = "...", …)` wrapper, and a namespaced helper `derive` — and
+  **impl blocks and functions whose bodies are the closed Tier-1 expression
+  vocabulary** (`self`, `&self.0`, `self.0`, plain and trait-qualified path calls,
+  method calls, string literals, and matches over variant patterns; a single
+  tail-expression body).
+- **Out of subset (fails loudly, typed):** trait definitions, `use` re-exports,
+  modules, macros, unions, const generics, `where` clauses, non-path types in
+  wire-data position (references, tuples, trait objects, …), non-feature cfg
   predicates, name-value attributes, tuple newtypes with a visibility-qualified
-  field, and enum variants with attributes or discriminants. Each is a distinct
-  `Error` variant naming the construct; the decoder never guesses and never skips.
+  field, enum variants with attributes or discriminants, associated consts/types in
+  an impl, and **class-B function bodies** — `let` bindings, early `return`,
+  struct-literal construction, named field access, `&mut`, closures, non-string
+  literals, or a wildcard match arm. Each is a distinct `Error` variant naming the
+  construct; the decoder never guesses and never skips.
 
-## The trait/impl frontier is the documented growth point
+## The type subset is position-aware
 
-The out-of-subset frontier over the copied golden corpus is dominated by impl blocks
-(the `From`/constructor/`Display` formulaic impls) and trait definitions — the
-daemon-runtime and formulaic-impl surface whose method bodies are arbitrary Rust
-logic Logos does not yet model as data. This is the honest edge, not a defect: the
-subset grows precisely when (and if) Logos gains a body vocabulary. A new modeled
-construct is one CoreLogos node plus one `project` arm plus one `read` arm, with no
-central walker to thread.
+A reference (`&String`) and an `impl Trait` bound (`impl Into<String>`) are in subset
+in **function-signature position** (a parameter or return type) and out of subset in
+**wire-data position** (a struct field, an enum-variant payload, a newtype's wrapped
+type, an alias target). This is not a special case bolted on: wire data is owned, and
+a borrowed or `impl`-typed field is a genuinely different thing from a borrowed return.
+The reader encodes the distinction as two verbs on the type noun — `ReadRust` for
+wire-data types (strict: references and `impl Trait` fail loudly) and
+`ReadSignatureType` for signature types (relaxed) — while projection is uniform,
+because a reference type projects to `&T` wherever it sits.
+
+## The trait/impl frontier: Tier-1 realized, class-B and traits still open
+
+The impl-block surface that was the honest frontier is now **Tier-1 realized**: the
+`From`/constructor/route/name-table formulaic impls the wire goldens carry decode and
+re-encode byte-exact (317 corpus items across the four goldens, up from the
+data-item-only count). What remains out of subset is the **class-B frontier** — impls
+whose bodies carry `let` bindings, early returns, struct-literal construction, or
+`&mut` (the `encode_signal_frame`/`Signal::new`/`Display` family) — and **trait
+definitions**. This stays the honest edge: the subset grows further precisely when
+(and if) Logos gains a class-B body vocabulary or a trait-definition node. A new
+modeled construct is one CoreLogos node plus one `project` arm plus one `read` arm,
+with no central walker to thread.
+
+### Named revisable lean (the Tier-1 boundary)
+
+The Tier-1 body vocabulary boundary is a revisable lean, owned by `core-logos`'s
+ARCHITECTURE (which enumerates the exact closed set and its triggers). On the codec
+side the lean is the **position-aware type subset** above: references and `impl Trait`
+are relaxed only in signature position. *Trigger:* a witnessed wire-data field
+legitimately needs a reference type — then the wire-data reader, not the boundary,
+is what changes.
 
 ## Verification and the acceptance oracle
 

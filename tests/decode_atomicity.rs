@@ -50,10 +50,6 @@ fn out_of_subset_constructs_fail_loudly_and_typed() {
     type ErrorMatches = fn(&Error) -> bool;
     let cases: &[(&str, ErrorMatches)] = &[
         (
-            "impl Foo {}",
-            |e| matches!(e, Error::UnsupportedItem { construct } if construct.contains("impl")),
-        ),
-        (
             "pub trait Foo {}",
             |e| matches!(e, Error::UnsupportedItem { construct } if construct.contains("trait")),
         ),
@@ -61,10 +57,15 @@ fn out_of_subset_constructs_fail_loudly_and_typed() {
             "pub use crate::path::Thing;",
             |e| matches!(e, Error::UnsupportedItem { construct } if construct.contains("use")),
         ),
-        (
-            "pub fn run() {}",
-            |e| matches!(e, Error::UnsupportedItem { construct } if construct.contains("function")),
-        ),
+        // Impl blocks and functions are now in subset, but only for the Tier-1 body
+        // vocabulary: an associated const in an impl is still out of subset, and an
+        // empty function body is not a single tail expression.
+        ("impl Foo { const N: u8 = 0; }", |e| {
+            matches!(e, Error::UnsupportedImplItem { .. })
+        }),
+        ("pub fn run() {}", |e| {
+            matches!(e, Error::UnsupportedStatement { .. })
+        }),
         ("pub struct Unit;", |e| matches!(e, Error::UnitStruct)),
         ("pub struct Pair(A, B);", |e| {
             matches!(e, Error::MultiFieldTupleStruct { field_count: 2 })

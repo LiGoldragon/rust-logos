@@ -59,8 +59,10 @@ impl RustSource {
 #[derive(Debug)]
 pub enum ItemOutcome {
     /// An in-subset item: its CoreLogos value, its canonical golden text, and the
-    /// text produced by re-encoding the CoreLogos value.
-    InSubset(InSubsetItem),
+    /// text produced by re-encoding the CoreLogos value. Boxed because a decoded
+    /// `CoreItem` (an impl block carries whole method-body trees) dwarfs the
+    /// out-of-subset error.
+    InSubset(Box<InSubsetItem>),
     /// An out-of-subset item: the typed error naming the construct that stopped it.
     OutOfSubset(Error),
 }
@@ -105,11 +107,11 @@ impl Coverage {
                 Ok(core) => {
                     let reencoded = RustSource::project_item(&core, table as &dyn NameResolver)?;
                     let canonical = RustSource::canonical_item(item);
-                    outcomes.push(ItemOutcome::InSubset(InSubsetItem {
+                    outcomes.push(ItemOutcome::InSubset(Box::new(InSubsetItem {
                         core,
                         canonical,
                         reencoded,
-                    }));
+                    })));
                 }
                 Err(reason) => outcomes.push(ItemOutcome::OutOfSubset(reason)),
             }
@@ -120,7 +122,7 @@ impl Coverage {
     /// The in-subset items, in source order.
     pub fn in_subset(&self) -> impl Iterator<Item = &InSubsetItem> {
         self.outcomes.iter().filter_map(|outcome| match outcome {
-            ItemOutcome::InSubset(item) => Some(item),
+            ItemOutcome::InSubset(item) => Some(item.as_ref()),
             ItemOutcome::OutOfSubset(_) => None,
         })
     }

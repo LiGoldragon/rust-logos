@@ -30,10 +30,12 @@
 //! in the CoreLogos value and transcribed.
 
 use core_logos::{
-    Alias, Attribute, ConfigurationAttribute, ConfigurationPredicate, CoreItem, DeriveGroup,
-    Enumeration, Field, GenericParameter, Generics, HelperDerive, LifetimeParameter, Newtype,
-    PathNode, Struct, TypeApplication, TypeParameter, TypeReference, Variant, VariantPayload,
-    Visibility,
+    Alias, Attribute, Block, Call, Callee, ConfigurationAttribute, ConfigurationPredicate,
+    CoreItem, DeriveGroup, Enumeration, Expression, Field, Function, GenericParameter, Generics,
+    HelperDerive, ImplBlock, ImplTraitType, LifetimeParameter, Match, MatchArm, MethodCall,
+    Newtype, Parameter, PathNode, Pattern, PatternElement, QualifiedPath, Receiver,
+    ReferenceExpression, ReferenceType, Struct, TupleFieldAccess, TupleVariantPattern,
+    TypeApplication, TypeParameter, TypeReference, Variant, VariantPayload, Visibility,
 };
 use name_table::{Identifier, NameResolver};
 use proc_macro2::TokenStream;
@@ -130,7 +132,61 @@ impl ProjectRust for TypeReference {
         match self {
             TypeReference::Path(path) => path.project(names),
             TypeReference::Application(application) => application.project(names),
+            TypeReference::Reference(reference) => reference.project(names),
+            TypeReference::ImplTrait(impl_trait) => impl_trait.project(names),
         }
+    }
+}
+
+impl ProjectRust for ReferenceType {
+    fn project<Resolver: NameResolver + ?Sized>(
+        &self,
+        names: &Resolver,
+    ) -> Result<TokenStream, Error> {
+        let referent = self.referent.project(names)?;
+        match self.lifetime {
+            None => Ok(quote! { & #referent }),
+            Some(lifetime) => {
+                let lifetime = lifetime.project_lifetime(names)?;
+                Ok(quote! { & #lifetime #referent })
+            }
+        }
+    }
+}
+
+impl ProjectRust for ImplTraitType {
+    fn project<Resolver: NameResolver + ?Sized>(
+        &self,
+        names: &Resolver,
+    ) -> Result<TokenStream, Error> {
+        let bounds = self
+            .bounds
+            .iter()
+            .map(|bound| bound.project(names))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(quote! { impl #(#bounds)+* })
+    }
+}
+
+/// Realizing a stored identifier as a lifetime token `'name` — a second verb on the
+/// identifier noun, distinct from its value projection, for the lifetime leaves a
+/// reference type and lifetime parameter share.
+trait ProjectLifetime {
+    fn project_lifetime<Resolver: NameResolver + ?Sized>(
+        &self,
+        names: &Resolver,
+    ) -> Result<TokenStream, Error>;
+}
+
+impl ProjectLifetime for Identifier {
+    fn project_lifetime<Resolver: NameResolver + ?Sized>(
+        &self,
+        names: &Resolver,
+    ) -> Result<TokenStream, Error> {
+        let name = names.resolve(*self)?;
+        format!("'{}", name.as_str())
+            .parse::<TokenStream>()
+            .map_err(|error| Error::Project(error.to_string()))
     }
 }
 
@@ -298,10 +354,7 @@ impl ProjectRust for LifetimeParameter {
         &self,
         names: &Resolver,
     ) -> Result<TokenStream, Error> {
-        let name = names.resolve(self.name)?;
-        format!("'{}", name.as_str())
-            .parse::<TokenStream>()
-            .map_err(|error| Error::Project(error.to_string()))
+        self.name.project_lifetime(names)
     }
 }
 
@@ -406,6 +459,260 @@ impl ProjectRust for Alias {
     }
 }
 
+impl ProjectRust for Expression {
+    fn project<Resolver: NameResolver + ?Sized>(
+        &self,
+        names: &Resolver,
+    ) -> Result<TokenStream, Error> {
+        // Exhaustive over the closed Tier-1 algebra — no wildcard arm.
+        match self {
+            Expression::Receiver => Ok(quote! { self }),
+            Expression::Path(path) => path.project(names),
+            Expression::StringLiteral(text) => {
+                let literal = syn::LitStr::new(text, proc_macro2::Span::call_site());
+                Ok(quote! { #literal })
+            }
+            Expression::Reference(reference) => reference.project(names),
+            Expression::Field(field) => field.project(names),
+            Expression::Call(call) => call.project(names),
+            Expression::MethodCall(method_call) => method_call.project(names),
+            Expression::Match(match_expression) => match_expression.project(names),
+        }
+    }
+}
+
+impl ProjectRust for ReferenceExpression {
+    fn project<Resolver: NameResolver + ?Sized>(
+        &self,
+        names: &Resolver,
+    ) -> Result<TokenStream, Error> {
+        let referent = self.referent.project(names)?;
+        Ok(quote! { & #referent })
+    }
+}
+
+impl ProjectRust for TupleFieldAccess {
+    fn project<Resolver: NameResolver + ?Sized>(
+        &self,
+        names: &Resolver,
+    ) -> Result<TokenStream, Error> {
+        let base = self.base.project(names)?;
+        // A tuple index token (`0`) with no integer suffix — the `.0` re-sugaring.
+        let index = syn::Index::from(self.index as usize);
+        Ok(quote! { #base.#index })
+    }
+}
+
+impl ProjectRust for Call {
+    fn project<Resolver: NameResolver + ?Sized>(
+        &self,
+        names: &Resolver,
+    ) -> Result<TokenStream, Error> {
+        let callee = self.callee.project(names)?;
+        let arguments = self
+            .arguments
+            .iter()
+            .map(|argument| argument.project(names))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(quote! { #callee(#(#arguments),*) })
+    }
+}
+
+impl ProjectRust for Callee {
+    fn project<Resolver: NameResolver + ?Sized>(
+        &self,
+        names: &Resolver,
+    ) -> Result<TokenStream, Error> {
+        match self {
+            Callee::Path(path) => path.project(names),
+            Callee::Qualified(qualified) => qualified.project(names),
+        }
+    }
+}
+
+impl ProjectRust for QualifiedPath {
+    fn project<Resolver: NameResolver + ?Sized>(
+        &self,
+        names: &Resolver,
+    ) -> Result<TokenStream, Error> {
+        let self_type = self.self_type.project(names)?;
+        let trait_path = self.trait_path.project(names)?;
+        let member = self
+            .member
+            .iter()
+            .map(|segment| segment.project(names))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(quote! { < #self_type as #trait_path >::#(#member)::* })
+    }
+}
+
+impl ProjectRust for MethodCall {
+    fn project<Resolver: NameResolver + ?Sized>(
+        &self,
+        names: &Resolver,
+    ) -> Result<TokenStream, Error> {
+        let receiver = self.receiver.project(names)?;
+        let method = self.method.project(names)?;
+        let arguments = self
+            .arguments
+            .iter()
+            .map(|argument| argument.project(names))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(quote! { #receiver.#method(#(#arguments),*) })
+    }
+}
+
+impl ProjectRust for Match {
+    fn project<Resolver: NameResolver + ?Sized>(
+        &self,
+        names: &Resolver,
+    ) -> Result<TokenStream, Error> {
+        let scrutinee = self.scrutinee.project(names)?;
+        let arms = self
+            .arms
+            .iter()
+            .map(|arm| arm.project(names))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(quote! { match #scrutinee { #(#arms)* } })
+    }
+}
+
+impl ProjectRust for MatchArm {
+    fn project<Resolver: NameResolver + ?Sized>(
+        &self,
+        names: &Resolver,
+    ) -> Result<TokenStream, Error> {
+        let pattern = self.pattern.project(names)?;
+        let body = self.body.project(names)?;
+        Ok(quote! { #pattern => #body, })
+    }
+}
+
+impl ProjectRust for Pattern {
+    fn project<Resolver: NameResolver + ?Sized>(
+        &self,
+        names: &Resolver,
+    ) -> Result<TokenStream, Error> {
+        match self {
+            Pattern::Path(path) => path.project(names),
+            Pattern::TupleVariant(tuple_variant) => tuple_variant.project(names),
+        }
+    }
+}
+
+impl ProjectRust for TupleVariantPattern {
+    fn project<Resolver: NameResolver + ?Sized>(
+        &self,
+        names: &Resolver,
+    ) -> Result<TokenStream, Error> {
+        let path = self.path.project(names)?;
+        let elements = self
+            .elements
+            .iter()
+            .map(|element| element.project(names))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(quote! { #path(#(#elements),*) })
+    }
+}
+
+impl ProjectRust for PatternElement {
+    fn project<Resolver: NameResolver + ?Sized>(
+        &self,
+        names: &Resolver,
+    ) -> Result<TokenStream, Error> {
+        match self {
+            PatternElement::Wildcard => Ok(quote! { _ }),
+            PatternElement::Binding(identifier) => identifier.project(names),
+        }
+    }
+}
+
+impl ProjectRust for Receiver {
+    fn project<Resolver: NameResolver + ?Sized>(
+        &self,
+        _names: &Resolver,
+    ) -> Result<TokenStream, Error> {
+        Ok(match self {
+            Receiver::Value => quote! { self },
+            Receiver::Reference => quote! { &self },
+        })
+    }
+}
+
+impl ProjectRust for Parameter {
+    fn project<Resolver: NameResolver + ?Sized>(
+        &self,
+        names: &Resolver,
+    ) -> Result<TokenStream, Error> {
+        let name = self.name.project(names)?;
+        let type_reference = self.type_reference.project(names)?;
+        Ok(quote! { #name: #type_reference })
+    }
+}
+
+impl ProjectRust for Block {
+    fn project<Resolver: NameResolver + ?Sized>(
+        &self,
+        names: &Resolver,
+    ) -> Result<TokenStream, Error> {
+        let tail_expression = self.tail_expression.project(names)?;
+        // The `{ … }` block delimiter — one of the five allowed syntheses.
+        Ok(quote! { { #tail_expression } })
+    }
+}
+
+impl ProjectRust for Function {
+    fn project<Resolver: NameResolver + ?Sized>(
+        &self,
+        names: &Resolver,
+    ) -> Result<TokenStream, Error> {
+        let attributes = self.attributes.project_preamble(names)?;
+        let visibility = self.visibility.project(names)?;
+        let name = self.name.project(names)?;
+        let generics = self.generics.project(names)?;
+        let mut inputs = Vec::new();
+        if let Some(receiver) = &self.receiver {
+            inputs.push(receiver.project(names)?);
+        }
+        for parameter in &self.parameters {
+            inputs.push(parameter.project(names)?);
+        }
+        let return_type = match &self.return_type {
+            None => TokenStream::new(),
+            Some(type_reference) => {
+                let type_reference = type_reference.project(names)?;
+                quote! { -> #type_reference }
+            }
+        };
+        let body = self.body.project(names)?;
+        Ok(quote! { #attributes #visibility fn #name #generics (#(#inputs),*) #return_type #body })
+    }
+}
+
+impl ProjectRust for ImplBlock {
+    fn project<Resolver: NameResolver + ?Sized>(
+        &self,
+        names: &Resolver,
+    ) -> Result<TokenStream, Error> {
+        let attributes = self.attributes.project_preamble(names)?;
+        let generics = self.generics.project(names)?;
+        let self_type = self.self_type.project(names)?;
+        let functions = self
+            .functions
+            .iter()
+            .map(|function| function.project(names))
+            .collect::<Result<Vec<_>, _>>()?;
+        let head = match &self.implemented_trait {
+            None => quote! { impl #generics #self_type },
+            Some(implemented_trait) => {
+                let implemented_trait = implemented_trait.project(names)?;
+                quote! { impl #generics #implemented_trait for #self_type }
+            }
+        };
+        Ok(quote! { #attributes #head { #(#functions)* } })
+    }
+}
+
 impl ProjectRust for CoreItem {
     fn project<Resolver: NameResolver + ?Sized>(
         &self,
@@ -418,6 +725,8 @@ impl ProjectRust for CoreItem {
             CoreItem::Struct(structure) => structure.project(names),
             CoreItem::Enumeration(enumeration) => enumeration.project(names),
             CoreItem::Alias(alias) => alias.project(names),
+            CoreItem::ImplBlock(impl_block) => impl_block.project(names),
+            CoreItem::Function(function) => function.project(names),
         }
     }
 }
