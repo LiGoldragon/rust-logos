@@ -37,8 +37,8 @@ use core_logos::{
     LetStatement, LifetimeParameter, Match, MatchArm, MethodCall, Module, Newtype, Parameter,
     PathNode, Pattern, PatternElement, QualifiedPath, RangeExpression, Receiver,
     ReferenceExpression, ReferenceMutability, ReferenceType, SliceType, Statement, Struct,
-    TryExpression, TupleExpression, TupleFieldAccess, TupleVariantPattern, TypeApplication,
-    TypeParameter, TypeReference, Use, Variant, VariantPayload, Visibility,
+    TryExpression, TupleExpression, TupleFieldAccess, TupleType, TupleVariantPattern,
+    TypeApplication, TypeParameter, TypeReference, Use, Variant, VariantPayload, Visibility,
 };
 use name_table::{Identifier, NameResolver};
 use proc_macro2::TokenStream;
@@ -140,6 +140,7 @@ impl ProjectRust for TypeReference {
             TypeReference::Reference(reference) => reference.project(names),
             TypeReference::ImplTrait(impl_trait) => impl_trait.project(names),
             TypeReference::Slice(slice) => slice.project(names),
+            TypeReference::Tuple(tuple) => tuple.project(names),
             TypeReference::Lifetime(lifetime) => lifetime.project_lifetime(names),
         }
     }
@@ -173,6 +174,21 @@ impl ProjectRust for SliceType {
         let element = self.element.project(names)?;
         // The `[…]` slice delimiter — a delimiter re-sugaring the owning node chooses.
         Ok(quote! { [#element] })
+    }
+}
+
+impl ProjectRust for TupleType {
+    fn project<Resolver: NameResolver + ?Sized>(
+        &self,
+        names: &Resolver,
+    ) -> Result<TokenStream, Error> {
+        let elements = self
+            .elements
+            .iter()
+            .map(|element| element.project(names))
+            .collect::<Result<Vec<_>, _>>()?;
+        // The `(…)` tuple delimiter — a delimiter re-sugaring the owning node chooses.
+        Ok(quote! { (#(#elements),*) })
     }
 }
 
