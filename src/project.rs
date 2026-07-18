@@ -32,13 +32,15 @@
 use core_logos::{
     Alias, ArrayExpression, AssociatedType, Attribute, Block, Call, Callee, ClosureExpression,
     ConfigurationAttribute, ConfigurationPredicate, Const, CoreItem, DeriveGroup, Enumeration,
-    Expression, Field, Function, GenericParameter, Generics, HelperDerive, ImplBlock, ImplItem,
+    Expression, Field, FieldInitializer, Function, GenericParameter, Generics, HelperDerive,
+    ImplBlock, ImplItem,
     ImplTraitType, IndexExpression, IntegerLiteral, IntegerRepresentation, LetBinding,
     LetStatement, LifetimeParameter, Match, MatchArm, MethodCall, Module, Newtype, Parameter,
     PathNode, Pattern, PatternElement, QualifiedPath, RangeExpression, Receiver,
     ReferenceExpression, ReferenceMutability, ReferenceType, SliceType, Statement, Struct,
-    TryExpression, TupleExpression, TupleFieldAccess, TupleType, TupleVariantPattern,
-    TypeApplication, TypeParameter, TypeReference, Use, Variant, VariantPayload, Visibility,
+    StructLiteral, TryExpression, TupleExpression, TupleFieldAccess, TupleType,
+    TupleVariantPattern, TypeApplication, TypeParameter, TypeReference, Use, Variant,
+    VariantPayload, Visibility,
 };
 use name_table::{Identifier, NameResolver};
 use proc_macro2::TokenStream;
@@ -531,6 +533,42 @@ impl ProjectRust for Expression {
             Expression::Tuple(tuple) => tuple.project(names),
             Expression::Index(index) => index.project(names),
             Expression::Range(range) => range.project(names),
+            Expression::StructLiteral(literal) => literal.project(names),
+        }
+    }
+}
+
+impl ProjectRust for StructLiteral {
+    fn project<Resolver: NameResolver + ?Sized>(
+        &self,
+        names: &Resolver,
+    ) -> Result<TokenStream, Error> {
+        let path = self.path.project(names)?;
+        let fields = self
+            .fields
+            .iter()
+            .map(|field| field.project(names))
+            .collect::<Result<Vec<_>, _>>()?;
+        // The `{ … }` delimiter — a delimiter re-sugaring the owning node chooses.
+        Ok(quote! { #path { #(#fields),* } })
+    }
+}
+
+impl ProjectRust for FieldInitializer {
+    fn project<Resolver: NameResolver + ?Sized>(
+        &self,
+        names: &Resolver,
+    ) -> Result<TokenStream, Error> {
+        let name = self.name.project(names)?;
+        // A `None` value is the field-shorthand form (`exchange`); a `Some` value is
+        // the explicit `name: <value>` form. The absent value dissolves the shorthand
+        // question into the normal optional read.
+        match &self.value {
+            None => Ok(quote! { #name }),
+            Some(value) => {
+                let value = value.project(names)?;
+                Ok(quote! { #name: #value })
+            }
         }
     }
 }
