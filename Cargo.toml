@@ -1,11 +1,11 @@
 [package]
 name         = "textual-rust"
-version      = "0.1.0"
+version      = "0.2.0"
 edition      = "2024"
 rust-version = "1.85"
 license      = "MIT OR Apache-2.0"
 repository   = "https://github.com/LiGoldragon/textual-rust"
-description  = "The TextualRust form codec: the two-way bridge between Rust TEXT and the stringless CoreLogos algebra. Reads a principled Rust subset into Logos through syn; projects Logos out as byte-exact prettyplease Rust. This is the foreign raw layer where syn and prettyplease are allowed; the Core sibling core-logos stays text-free."
+description  = "The TextualRust form codec: the two-way bridge between Rust TEXT and the stringless EncodedLogos algebra. Reads a principled Rust subset into Logos through syn; projects Logos out as byte-exact prettyplease Rust. This is the foreign raw layer where syn and prettyplease are allowed; the Core sibling core-logos stays text-free."
 publish      = false
 
 [lib]
@@ -13,9 +13,9 @@ name = "textual_rust"
 path = "src/lib.rs"
 
 [dependencies]
-core-logos       = { git = "https://github.com/LiGoldragon/core-logos.git", rev = "c25b5f58205adc34b9ec940634d0f50fdfb0cc3d" }
-name-table       = { git = "https://github.com/LiGoldragon/protos.git", rev = "7e60f60fbc144265cf5ac1ec238b87744967d4eb" }
-content-identity = { git = "https://github.com/LiGoldragon/protos.git", rev = "7e60f60fbc144265cf5ac1ec238b87744967d4eb" }
+core-logos       = { git = "https://github.com/LiGoldragon/core-logos.git", rev = "22b12a474c86cf812c89b41054d4e26e870ec70c" }
+name-table       = { git = "https://github.com/LiGoldragon/protos.git", rev = "f12a80c85d9d27ac4432b86b7d3095e8387c6fa9" }
+content-identity = { git = "https://github.com/LiGoldragon/protos.git", rev = "f12a80c85d9d27ac4432b86b7d3095e8387c6fa9" }
 proc-macro2      = "1"
 quote            = "1"
 syn              = { version = "2", features = ["full", "parsing", "printing", "extra-traits"] }

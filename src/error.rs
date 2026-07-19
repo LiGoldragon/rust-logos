@@ -12,7 +12,7 @@ use thiserror::Error;
 /// A failure at the `textual-rust` codec boundary.
 #[derive(Debug, Clone, Error)]
 pub enum Error {
-    /// A top-level item kind the CoreLogos algebra does not model — a trait
+    /// A top-level item kind the EncodedLogos algebra does not model — a trait
     /// definition, a trait alias, a `use` re-export, a module, a macro invocation, a
     /// union, a const, or a static. The modeled kinds are newtype, named-field
     /// struct, enum, type alias, impl block, and function.

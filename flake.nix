@@ -1,5 +1,5 @@
 {
-  description = "textual-rust — the TextualRust form codec: the two-way syn/prettyplease bridge between Rust text and the stringless CoreLogos algebra";
+  description = "textual-rust — the TextualRust form codec: the two-way syn/prettyplease bridge between Rust text and the stringless EncodedLogos algebra";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";

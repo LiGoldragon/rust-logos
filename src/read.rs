@@ -1,7 +1,7 @@
-//! The reader: Rust text → CoreLogos, through `syn`.
+//! The reader: Rust text → EncodedLogos, through `syn`.
 //!
 //! Decode never re-implements Rust's grammar — it parses with `syn` and maps the
-//! in-subset AST to CoreLogos. The principled subset is exactly what CoreLogos
+//! in-subset AST to EncodedLogos. The principled subset is exactly what EncodedLogos
 //! models: the data item kinds (newtype, named-field struct, enum, type alias) plus
 //! impl blocks and functions whose bodies are the closed Tier-1 expression
 //! vocabulary, associated types and consts in impls, `const` items and const-carrying
@@ -14,18 +14,19 @@
 //! and never skips by default.
 //!
 //! The verb belongs to the noun being read: [`ReadRust`] is implemented on the
-//! `syn` AST nodes, each producing its CoreLogos counterpart and interning names
+//! `syn` AST nodes, each producing its EncodedLogos counterpart and interning names
 //! through the threaded [`NameInterner`]. Interning through a transaction (see
 //! [`crate::codec`]) is what makes a failed decode leave the NameTable untouched.
 
 use core_logos::{
     Alias, ArrayExpression, AssociatedType, Attribute, Block, Call, Callee, ConfigurationAttribute,
-    ConfigurationPredicate, Const, CoreItem, DeriveGroup, Enumeration, Expression, Field, Function,
-    GenericParameter, Generics, HelperDerive, ImplBlock, ImplItem, ImplTraitType, IntegerLiteral,
-    IntegerRepresentation, LifetimeParameter, Match, MatchArm, MethodCall, Module, Newtype,
-    Parameter, PathNode, Pattern, PatternElement, QualifiedPath, Receiver, ReferenceExpression,
-    ReferenceMutability, ReferenceType, SliceType, Struct, TupleFieldAccess, TupleVariantPattern,
-    TypeApplication, TypeParameter, TypeReference, Use, Variant, VariantPayload, Visibility,
+    ConfigurationPredicate, Const, DeriveGroup, EncodedItem, Enumeration, Expression, Field,
+    Function, GenericParameter, Generics, HelperDerive, ImplBlock, ImplItem, ImplTraitType,
+    IntegerLiteral, IntegerRepresentation, LifetimeParameter, Match, MatchArm, MethodCall, Module,
+    Newtype, Parameter, PathNode, Pattern, PatternElement, QualifiedPath, Receiver,
+    ReferenceExpression, ReferenceMutability, ReferenceType, SliceType, Struct, TupleFieldAccess,
+    TupleVariantPattern, TypeApplication, TypeParameter, TypeReference, Use, Variant,
+    VariantPayload, Visibility,
 };
 use name_table::{Identifier, Name, NameInterner};
 use quote::ToTokens;
@@ -35,12 +36,12 @@ use syn::punctuated::Punctuated;
 use crate::error::Error;
 
 /// The single decode verb, implemented on each in-subset `syn` node, producing its
-/// CoreLogos counterpart. Interning is threaded, never held.
+/// EncodedLogos counterpart. Interning is threaded, never held.
 pub trait ReadRust {
-    /// The CoreLogos node this `syn` node reads into.
+    /// The EncodedLogos node this `syn` node reads into.
     type Logos;
 
-    /// Read this node into CoreLogos, interning any names into the continuous
+    /// Read this node into EncodedLogos, interning any names into the continuous
     /// identifier space, or fail loudly naming the out-of-subset construct.
     fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<Self::Logos, Error>;
 }
@@ -66,9 +67,9 @@ impl ReadAttributePreamble for [syn::Attribute] {
 }
 
 impl ReadRust for syn::Item {
-    type Logos = CoreItem;
+    type Logos = EncodedItem;
 
-    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<CoreItem, Error> {
+    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<EncodedItem, Error> {
         match self {
             syn::Item::Struct(structure) => structure.read(interner),
             syn::Item::Enum(enumeration) => enumeration.read(interner),
@@ -107,9 +108,9 @@ impl ReadRust for syn::Item {
 }
 
 impl ReadRust for syn::ItemStruct {
-    type Logos = CoreItem;
+    type Logos = EncodedItem;
 
-    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<CoreItem, Error> {
+    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<EncodedItem, Error> {
         let attributes = self.attrs.read_preamble(interner)?;
         let visibility = self.vis.read(interner)?;
         let name = interner.intern(Name::new(self.ident.to_string()));
@@ -121,7 +122,7 @@ impl ReadRust for syn::ItemStruct {
                     .iter()
                     .map(|field| field.read(interner))
                     .collect::<Result<Vec<_>, _>>()?;
-                Ok(CoreItem::Struct(Struct {
+                Ok(EncodedItem::Struct(Struct {
                     visibility,
                     attributes,
                     name,
@@ -150,7 +151,7 @@ impl ReadRust for syn::ItemStruct {
                 // the `pub`-field form round-trips instead of failing out of subset.
                 let wrapped_visibility = field.vis.read(interner)?;
                 let wrapped = field.ty.read(interner)?;
-                Ok(CoreItem::Newtype(Newtype {
+                Ok(EncodedItem::Newtype(Newtype {
                     visibility,
                     attributes,
                     name,
@@ -164,9 +165,9 @@ impl ReadRust for syn::ItemStruct {
 }
 
 impl ReadRust for syn::ItemEnum {
-    type Logos = CoreItem;
+    type Logos = EncodedItem;
 
-    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<CoreItem, Error> {
+    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<EncodedItem, Error> {
         let attributes = self.attrs.read_preamble(interner)?;
         let visibility = self.vis.read(interner)?;
         let name = interner.intern(Name::new(self.ident.to_string()));
@@ -176,7 +177,7 @@ impl ReadRust for syn::ItemEnum {
             .iter()
             .map(|variant| variant.read(interner))
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(CoreItem::Enumeration(Enumeration {
+        Ok(EncodedItem::Enumeration(Enumeration {
             visibility,
             attributes,
             name,
@@ -228,15 +229,15 @@ impl ReadRust for syn::Variant {
 }
 
 impl ReadRust for syn::ItemType {
-    type Logos = CoreItem;
+    type Logos = EncodedItem;
 
-    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<CoreItem, Error> {
+    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<EncodedItem, Error> {
         let attributes = self.attrs.read_preamble(interner)?;
         let visibility = self.vis.read(interner)?;
         let name = interner.intern(Name::new(self.ident.to_string()));
         let generics = self.generics.read(interner)?;
         let target = self.ty.read(interner)?;
-        Ok(CoreItem::Alias(Alias {
+        Ok(EncodedItem::Alias(Alias {
             visibility,
             attributes,
             name,
@@ -247,9 +248,9 @@ impl ReadRust for syn::ItemType {
 }
 
 impl ReadRust for syn::ItemUse {
-    type Logos = CoreItem;
+    type Logos = EncodedItem;
 
-    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<CoreItem, Error> {
+    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<EncodedItem, Error> {
         if self.leading_colon.is_some() {
             return Err(Error::UnsupportedUseTree {
                 construct: "a leading-colon absolute import",
@@ -262,7 +263,7 @@ impl ReadRust for syn::ItemUse {
         // name, a glob, or a rename is out of subset.
         let mut base = Vec::new();
         let group = self.tree.read_use_group(interner, &mut base)?;
-        Ok(CoreItem::Use(Use {
+        Ok(EncodedItem::Use(Use {
             visibility,
             attributes,
             base: PathNode { segments: base },
@@ -272,9 +273,9 @@ impl ReadRust for syn::ItemUse {
 }
 
 impl ReadRust for syn::ItemMod {
-    type Logos = CoreItem;
+    type Logos = EncodedItem;
 
-    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<CoreItem, Error> {
+    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<EncodedItem, Error> {
         if self.unsafety.is_some() {
             return Err(Error::UnsupportedItem {
                 construct: "an unsafe module",
@@ -304,7 +305,7 @@ impl ReadRust for syn::ItemMod {
                 }),
             })
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(CoreItem::Module(Module {
+        Ok(EncodedItem::Module(Module {
             visibility,
             attributes,
             name,
@@ -314,10 +315,10 @@ impl ReadRust for syn::ItemMod {
 }
 
 impl ReadRust for syn::ItemConst {
-    type Logos = CoreItem;
+    type Logos = EncodedItem;
 
-    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<CoreItem, Error> {
-        Ok(CoreItem::Const(self.read_const(interner)?))
+    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<EncodedItem, Error> {
+        Ok(EncodedItem::Const(self.read_const(interner)?))
     }
 }
 
@@ -445,7 +446,7 @@ impl ReadRust for syn::Field {
     }
 }
 
-/// Field-attribute rejection — a verb on the `syn::Field` noun. CoreLogos fields
+/// Field-attribute rejection — a verb on the `syn::Field` noun. EncodedLogos fields
 /// carry no attributes, so any field attribute is out of subset and loud.
 trait RejectFieldAttributes {
     fn reject_field_attributes(&self) -> Result<(), Error>;
@@ -870,9 +871,9 @@ impl ReadRust for syn::GenericParam {
 // ---------------------------------------------------------------------------
 
 impl ReadRust for syn::ItemImpl {
-    type Logos = CoreItem;
+    type Logos = EncodedItem;
 
-    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<CoreItem, Error> {
+    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<EncodedItem, Error> {
         if self.unsafety.is_some() {
             return Err(Error::UnsupportedItem {
                 construct: "an unsafe impl",
@@ -902,7 +903,7 @@ impl ReadRust for syn::ItemImpl {
             .iter()
             .map(|item| item.read(interner))
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(CoreItem::ImplBlock(ImplBlock {
+        Ok(EncodedItem::ImplBlock(ImplBlock {
             attributes,
             generics,
             implemented_trait,
@@ -985,14 +986,14 @@ impl ReadRust for syn::ImplItemFn {
 }
 
 impl ReadRust for syn::ItemFn {
-    type Logos = CoreItem;
+    type Logos = EncodedItem;
 
-    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<CoreItem, Error> {
+    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<EncodedItem, Error> {
         let attributes = self.attrs.read_preamble(interner)?;
         let visibility = self.vis.read(interner)?;
         let parts = self.sig.read_function_signature(interner)?;
         let body = self.block.read(interner)?;
-        Ok(CoreItem::Function(
+        Ok(EncodedItem::Function(
             parts.into_function(attributes, visibility, body),
         ))
     }

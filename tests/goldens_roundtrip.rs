@@ -1,4 +1,4 @@
-//! The golden-corpus harness: `decode(golden item) → CoreLogos → encode` must
+//! The golden-corpus harness: `decode(golden item) → EncodedLogos → encode` must
 //! reproduce the item's byte-exact golden text, for every in-subset item. Coverage
 //! is reported honestly — in-subset (round-tripped) versus out-of-subset (the
 //! trait/impl frontier) — per fixture and in total.

@@ -2,13 +2,13 @@
 //! and trait impls, its class-D trace/object-name enums and nested-match `name`
 //! methods, its class-D `pub struct TraceEvent(pub ObjectName);` tuple-struct
 //! declaration (layout 4's tuple-field visibility), and its class-C
-//! const/module/associated-const stub items decode into the grown CoreLogos
+//! const/module/associated-const stub items decode into the grown EncodedLogos
 //! vocabulary and re-encode byte-exact against the frozen `spirit_generated.rs`
 //! golden bytes. Negative tests hold the vocabulary boundary: a construct just
 //! outside the closed set fails loudly and typed.
 
 use core_logos::{
-    Const, CoreItem, Expression, ImplItem, IntegerRepresentation, TypeReference, Visibility,
+    Const, EncodedItem, Expression, ImplItem, IntegerRepresentation, TypeReference, Visibility,
 };
 use name_table::{NameResolver, NameTable};
 use textual_rust::error::Error;
@@ -24,10 +24,10 @@ fn only_item(source: &str) -> syn::Item {
 }
 
 /// Decode every golden item in source order so the table accumulates names exactly
-/// as the corpus survey does, and return the decoded CoreLogos value of the first
+/// as the corpus survey does, and return the decoded EncodedLogos value of the first
 /// item whose canonical golden text contains `marker`, asserting it round-trips
 /// byte-exact against the real golden bytes.
-fn round_trip_golden_item(marker: &str, table: &mut NameTable) -> CoreItem {
+fn round_trip_golden_item(marker: &str, table: &mut NameTable) -> EncodedItem {
     let items = RustSource::new(SPIRIT_GOLDEN)
         .parse_items()
         .expect("golden parses");
@@ -64,7 +64,7 @@ fn round_trip_golden_item(marker: &str, table: &mut NameTable) -> CoreItem {
 fn class_b_from_str_impl_round_trips_with_associated_type_and_turbofish() {
     let mut table = NameTable::new();
     let core = round_trip_golden_item("impl std::str::FromStr for Input", &mut table);
-    let CoreItem::ImplBlock(impl_block) = core else {
+    let EncodedItem::ImplBlock(impl_block) = core else {
         panic!("a trait impl block");
     };
     assert!(
@@ -90,7 +90,7 @@ fn class_b_display_impl_round_trips_with_mut_formatter() {
 fn class_d_nested_match_name_method_round_trips() {
     let mut table = NameTable::new();
     let core = round_trip_golden_item("impl SignalObjectName", &mut table);
-    let CoreItem::ImplBlock(impl_block) = core else {
+    let EncodedItem::ImplBlock(impl_block) = core else {
         panic!("an inherent impl block");
     };
     let ImplItem::Method(name_method) = &impl_block.items[0] else {
@@ -113,7 +113,7 @@ fn class_d_nested_match_name_method_round_trips() {
 fn class_d_trace_event_declaration_round_trips_with_pub_tuple_field() {
     let mut table = NameTable::new();
     let core = round_trip_golden_item("pub struct TraceEvent(pub ObjectName)", &mut table);
-    let CoreItem::Newtype(newtype) = core else {
+    let EncodedItem::Newtype(newtype) = core else {
         panic!("a tuple newtype declaration");
     };
     assert_eq!(
@@ -136,14 +136,14 @@ fn class_d_trace_event_impl_round_trips() {
 fn class_c_short_header_module_round_trips_with_hex_consts() {
     let mut table = NameTable::new();
     let core = round_trip_golden_item("pub mod short_header", &mut table);
-    let CoreItem::Module(module) = core else {
+    let EncodedItem::Module(module) = core else {
         panic!("a module");
     };
     let first_const = module
         .items
         .iter()
         .find_map(|item| match item {
-            CoreItem::Const(const_item) => Some(const_item),
+            EncodedItem::Const(const_item) => Some(const_item),
             _ => None,
         })
         .expect("the module carries consts");
@@ -165,7 +165,7 @@ fn class_c_short_header_module_round_trips_with_hex_consts() {
 fn class_c_top_level_const_round_trips_decimal() {
     let mut table = NameTable::new();
     let core = round_trip_golden_item("const SIGNAL_SHORT_HEADER_BYTE_COUNT", &mut table);
-    let CoreItem::Const(Const { value, .. }) = core else {
+    let EncodedItem::Const(Const { value, .. }) = core else {
         panic!("a top-level const");
     };
     assert!(
@@ -187,7 +187,7 @@ fn class_c_associated_const_array_round_trips() {
         "impl signal_frame::SignalOperationHeads for Input",
         &mut table,
     );
-    let CoreItem::ImplBlock(impl_block) = core else {
+    let EncodedItem::ImplBlock(impl_block) = core else {
         panic!("a trait impl");
     };
     let ImplItem::AssociatedConst(heads) = &impl_block.items[0] else {

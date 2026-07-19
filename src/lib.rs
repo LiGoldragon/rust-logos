@@ -9,21 +9,21 @@
 //! ## The two directions
 //!
 //! - **Writer** ([`project`]): [`ProjectRust`] is one domain
-//!   trait implemented per CoreLogos node kind. Each node projects the Rust tokens
+//!   trait implemented per EncodedLogos node kind. Each node projects the Rust tokens
 //!   it already is; a [`NameResolver`](name_table::NameResolver) is threaded to the
 //!   identifier leaves. A single `prettyplease` pass owns all formatting
 //!   ([`RustSource::project_item`](project::RustSource::project_item)). Projection
 //!   may synthesize exactly five things and nothing else — the five-synthesis rule,
 //!   documented on [`project`].
 //! - **Reader** ([`read`]): [`ReadRust`] maps the in-subset `syn`
-//!   AST to CoreLogos, interning names through a
+//!   AST to EncodedLogos, interning names through a
 //!   [`NameInterner`](name_table::NameInterner). Every out-of-subset construct is a
 //!   typed loud [`Error`] naming the construct — the reader never guesses and never
 //!   skips.
 //!
 //! ## The subset boundary
 //!
-//! The two-way subset is exactly what CoreLogos models: the data item kinds
+//! The two-way subset is exactly what EncodedLogos models: the data item kinds
 //! (newtype, named-field struct, enum, type alias) plus impl blocks and functions
 //! whose bodies are the closed Tier-1 expression vocabulary, the brace-group `use`
 //! import (`use <base>::{<names>};` — the module prelude's NOTA import), and — from
@@ -39,9 +39,9 @@
 //! ## The codec is the acceptance oracle
 //!
 //! The schema-rust goldens gate the codec both directions
-//! ([`codec::Coverage`]): `decode(golden) → CoreLogos → encode` reproduces the
+//! ([`codec::Coverage`]): `decode(golden) → EncodedLogos → encode` reproduces the
 //! golden bytes for the in-subset items, and (from `core-logos`'s golden-pair
-//! fixtures) `encode → decode` reproduces the CoreLogos value with a stable content
+//! fixtures) `encode → decode` reproduces the EncodedLogos value with a stable content
 //! identity — the hash never moves through text.
 
 pub mod codec;

@@ -9,8 +9,8 @@ agent entering the repository.
 ## The one shape: a codec, not a one-way emitter
 
 Logos is 1-to-1 with Rust at the Core, and projection is transcription, so the
-Rust edge is inherently a **codec**. The writer (CoreLogos → Rust) and the reader
-(Rust → CoreLogos) are inverses over the same principled subset. This crate is
+Rust edge is inherently a **codec**. The writer (EncodedLogos → Rust) and the reader
+(Rust → EncodedLogos) are inverses over the same principled subset. This crate is
 where Rust text lives; the Core sibling `core-logos` is text-free and depends on no
 `syn`, `prettyplease`, or `quote`. Keeping text here is what lets one Core be
 viewed through many textual forms without any of them reaching into the Core.
@@ -18,17 +18,17 @@ viewed through many textual forms without any of them reaching into the Core.
 ## Verb belongs to noun, both directions
 
 There is no free-function emitter and no free-function parser walker. The writer is
-one domain trait, `ProjectRust`, implemented once per CoreLogos node kind; the
+one domain trait, `ProjectRust`, implemented once per EncodedLogos node kind; the
 reader is one domain trait, `ReadRust`, implemented on the `syn` AST node being
 read. Composition helpers are methods on the noun they concern (the attribute-vector
 preamble, the list-attribute readers, the type-position path reader). Totality is
-mechanical: the closed `CoreItem` enum is matched with no wildcard arm, and every
+mechanical: the closed `EncodedItem` enum is matched with no wildcard arm, and every
 child slot is itself a projecting/reading node, so a missing case is a compile
 error, not a silent skip.
 
 ## The five-synthesis rule (writer)
 
-CoreLogos → Rust adds no meaning. Projection may synthesize exactly five things,
+EncodedLogos → Rust adds no meaning. Projection may synthesize exactly five things,
 each with one home: dotted → `::` (`PathNode::project`); delimiter re-sugaring (the
 body/argument brackets, chosen by node kind); stored-identifier realization (the two
 identifier leaves); formatting (the single `prettyplease` pass); and the
@@ -62,7 +62,7 @@ likewise two-way and lives in the one `PathNode` shape.
 
 ## The subset boundary, stated precisely
 
-The two-way subset is exactly the constructs CoreLogos models as data:
+The two-way subset is exactly the constructs EncodedLogos models as data:
 
 - **In subset (byte-exact two-way):** tuple newtypes with an inherited-visibility
   field, named-field structs (fields carrying their own stored visibility), unit /
@@ -125,7 +125,7 @@ whose enum derive re-exposes a context-dependent trailing-comma layout a context
 `DeriveGroup` does not yet carry faithfully). This stays the honest edge: the subset
 grows further precisely when Logos gains a Tier-2 statement-body vocabulary, a
 trait-definition node, or a trailing-comma-faithful derive group. A new modeled
-construct is one CoreLogos node plus one `project` arm plus one `read` arm, with no
+construct is one EncodedLogos node plus one `project` arm plus one `read` arm, with no
 central walker to thread.
 
 ### Named revisable lean (the Tier-1 boundary)
@@ -143,7 +143,7 @@ The schema-rust goldens gate the codec both directions:
 
 - `encode∘decode = identity` on prettyplease-canonical text — every in-subset golden
   item round-trips byte-exact against its original golden bytes.
-- `decode∘encode = identity` on CoreLogos — the golden-pair fixtures round-trip with
+- `decode∘encode = identity` on EncodedLogos — the golden-pair fixtures round-trip with
   a stable content identity; the hash does not move through text.
 
 Durable test evidence is owned by Nix: `nix flake check` runs build, test, clippy

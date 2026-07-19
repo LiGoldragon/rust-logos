@@ -6,7 +6,7 @@
 //! the Rust edge. The unit of byte-exactness is the *item*: an item's prettyplease
 //! canonical form is the acceptance oracle, and a round-trip must reproduce it.
 
-use core_logos::CoreItem;
+use core_logos::EncodedItem;
 use name_table::{NameResolver, NameTable};
 
 use crate::error::Error;
@@ -17,14 +17,14 @@ use crate::read::ReadRust;
 /// success the interned names commit into the table; on failure the table is left
 /// byte-identical, because interning ran through a rolled-back transaction.
 pub trait DecodeAtomically {
-    /// Read this item into CoreLogos, committing its names only if the whole item
+    /// Read this item into EncodedLogos, committing its names only if the whole item
     /// is in subset. A single out-of-subset construct fails the whole item and
     /// leaks no name.
-    fn decode_atomically(&self, table: &mut NameTable) -> Result<CoreItem, Error>;
+    fn decode_atomically(&self, table: &mut NameTable) -> Result<EncodedItem, Error>;
 }
 
 impl DecodeAtomically for syn::Item {
-    fn decode_atomically(&self, table: &mut NameTable) -> Result<CoreItem, Error> {
+    fn decode_atomically(&self, table: &mut NameTable) -> Result<EncodedItem, Error> {
         table.try_intern(|transaction| self.read(transaction))
     }
 }
@@ -58,20 +58,20 @@ impl RustSource {
 /// could not decode.
 #[derive(Debug)]
 pub enum ItemOutcome {
-    /// An in-subset item: its CoreLogos value, its canonical golden text, and the
-    /// text produced by re-encoding the CoreLogos value. Boxed because a decoded
-    /// `CoreItem` (an impl block carries whole method-body trees) dwarfs the
+    /// An in-subset item: its EncodedLogos value, its canonical golden text, and the
+    /// text produced by re-encoding the EncodedLogos value. Boxed because a decoded
+    /// `EncodedItem` (an impl block carries whole method-body trees) dwarfs the
     /// out-of-subset error.
     InSubset(Box<InSubsetItem>),
     /// An out-of-subset item: the typed error naming the construct that stopped it.
     OutOfSubset(Error),
 }
 
-/// An in-subset item that decoded to CoreLogos and re-encoded to text.
+/// An in-subset item that decoded to EncodedLogos and re-encoded to text.
 #[derive(Debug)]
 pub struct InSubsetItem {
-    /// The decoded stringless CoreLogos value.
-    pub core: CoreItem,
+    /// The decoded stringless EncodedLogos value.
+    pub core: EncodedItem,
     /// The item's prettyplease canonical text (its exact golden bytes).
     pub canonical: RustSource,
     /// The text produced by projecting `core` back to Rust.

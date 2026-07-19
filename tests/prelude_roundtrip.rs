@@ -1,6 +1,6 @@
 //! The generated-module prelude round-trips byte-exact: the four scalar type
 //! aliases (as one blank-free block) and the cfg-gated NOTA import each decode from
-//! their golden text into CoreLogos and project back to the exact golden bytes.
+//! their golden text into EncodedLogos and project back to the exact golden bytes.
 //! This is the block-level acceptance the fixed module prelude depends on.
 
 use name_table::{NameResolver, NameTable};

@@ -13,17 +13,17 @@ depends on none of them.
 ## The two directions
 
 - **Writer** (`src/project.rs`) — `ProjectRust` is one domain trait implemented per
-  CoreLogos node kind (the verb-belongs-to-noun discipline). Each node projects the
+  EncodedLogos node kind (the verb-belongs-to-noun discipline). Each node projects the
   Rust tokens it already is; a read-only `NameResolver` is threaded to the
   identifier-bearing leaves. A single `prettyplease` pass owns all formatting.
-- **Reader** (`src/read.rs`) — `ReadRust` maps the in-subset `syn` AST to CoreLogos,
+- **Reader** (`src/read.rs`) — `ReadRust` maps the in-subset `syn` AST to EncodedLogos,
   interning names through a `NameInterner`. Decode leans on `syn` and never
   re-implements Rust's grammar. Every out-of-subset construct is a **typed loud
   error naming the construct** — the reader never guesses and never skips.
 
 ## The five-synthesis rule
 
-CoreLogos → Rust adds no meaning. Projection may synthesize exactly five things and
+EncodedLogos → Rust adds no meaning. Projection may synthesize exactly five things and
 nothing else, each with one home:
 
 1. **Dotted → `::`** on paths (`PathNode::project`).
@@ -35,7 +35,7 @@ nothing else, each with one home:
 5. **The `// @generated` header** — a fixed module literal.
 
 Everything semantic (which derives, which visibility, struct-vs-newtype, attribute
-order, cfg predicates, field names, wrapped types) is present in CoreLogos and
+order, cfg predicates, field names, wrapped types) is present in EncodedLogos and
 transcribed, never materialized.
 
 ## The formatting-authority split
@@ -51,7 +51,7 @@ derive stays on one line, so a single emission is byte-exact in both layouts.
 
 ## The subset boundary
 
-The two-way subset is exactly what CoreLogos models: the four item kinds — newtype,
+The two-way subset is exactly what EncodedLogos models: the four item kinds — newtype,
 named-field struct, enum, type alias — over the witnessed
 attribute/visibility/generic/type vocabulary. **Out of subset, failing loudly:**
 trait definitions, impl blocks, free functions, `use` re-exports, modules, macros,
@@ -67,14 +67,14 @@ if and when Logos models method bodies as data.
 (`tests/goldens_roundtrip.rs`) proves, over the copied corpus:
 
 - **encode∘decode = identity on prettyplease-canonical text** — every in-subset
-  golden item `decode → CoreLogos → encode` reproduces its byte-exact golden text.
+  golden item `decode → EncodedLogos → encode` reproduces its byte-exact golden text.
   Coverage over the copied corpus: **153 in-subset items round-tripped byte-exact**
   (38 newtypes, 30 structs, 48 enums, 37 aliases) versus **304 out-of-subset
   frontier items** (254 impl blocks, 19 trait definitions, 14 modules, plus smaller
   edges). The impl/trait frontier is exactly the daemon-runtime and formulaic-impl
-  surface CoreLogos does not model as data.
-- **decode∘encode = identity on CoreLogos** — `core-logos`'s golden-pair fixtures
-  `encode → decode` reproduce the CoreLogos value with a stable content identity;
+  surface EncodedLogos does not model as data.
+- **decode∘encode = identity on EncodedLogos** — `core-logos`'s golden-pair fixtures
+  `encode → decode` reproduce the EncodedLogos value with a stable content identity;
   the hash does not move through text (`tests/core_roundtrip.rs`).
 - **atomic decode** — a failed decode leaves the NameTable byte-identical, and each
   out-of-subset construct fails with the typed variant that names it

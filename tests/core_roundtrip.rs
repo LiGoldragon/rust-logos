@@ -1,6 +1,6 @@
 //! The decode∘encode law and the writer's byte-exact output.
 //!
-//! `encode(core) → text → decode(text)` reproduces the CoreLogos value, and its
+//! `encode(core) → text → decode(text)` reproduces the EncodedLogos value, and its
 //! content identity does not move through text — the hash is stable across the
 //! text round trip because decode interns over the same continuous identifier
 //! space, so the reconstructed value is identical, not merely equivalent.
@@ -30,11 +30,11 @@ fn the_writer_projects_commit_sequence_to_its_byte_exact_golden() {
     assert_eq!(text.as_str(), COMMIT_SEQUENCE_GOLDEN);
 }
 
-/// `encode → decode` reproduces the CoreLogos value and its content identity, for
+/// `encode → decode` reproduces the EncodedLogos value and its content identity, for
 /// both golden-pair fixtures (the newtype and the field-visibility-bearing struct).
 #[test]
 fn decode_after_encode_is_identity_on_core_with_a_stable_hash() {
-    let builders: [fn(&mut NameTable) -> core_logos::CoreItem; 2] =
+    let builders: [fn(&mut NameTable) -> core_logos::EncodedItem; 2] =
         [support::commit_sequence, support::database_marker];
     for build in builders {
         let mut names = NameTable::new();
@@ -52,7 +52,7 @@ fn decode_after_encode_is_identity_on_core_with_a_stable_hash() {
             .decode_atomically(&mut decode_table)
             .expect("in-subset decode");
 
-        assert_eq!(decoded, core, "the CoreLogos value round-trips exactly");
+        assert_eq!(decoded, core, "the EncodedLogos value round-trips exactly");
         let after = decoded.content_identity().expect("hash after");
         assert_eq!(
             before.bytes(),
