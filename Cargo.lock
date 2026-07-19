@@ -88,7 +88,7 @@ checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
 [[package]]
 name = "content-identity"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/protos.git?rev=18ae746857979c9c01c0d4b315bb8a818056cf09#18ae746857979c9c01c0d4b315bb8a818056cf09"
+source = "git+https://github.com/LiGoldragon/protos.git?rev=7e60f60fbc144265cf5ac1ec238b87744967d4eb#7e60f60fbc144265cf5ac1ec238b87744967d4eb"
 dependencies = [
  "blake3",
  "rkyv",
@@ -98,7 +98,7 @@ dependencies = [
 [[package]]
 name = "core-logos"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/core-logos.git?rev=da56ca488ff1fc8d50a557723cf7355a49ba5d0b#da56ca488ff1fc8d50a557723cf7355a49ba5d0b"
+source = "git+https://github.com/LiGoldragon/core-logos.git?rev=c25b5f58205adc34b9ec940634d0f50fdfb0cc3d#c25b5f58205adc34b9ec940634d0f50fdfb0cc3d"
 dependencies = [
  "content-identity",
  "name-table",
@@ -207,7 +207,7 @@ dependencies = [
 [[package]]
 name = "name-table"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/protos.git?rev=18ae746857979c9c01c0d4b315bb8a818056cf09#18ae746857979c9c01c0d4b315bb8a818056cf09"
+source = "git+https://github.com/LiGoldragon/protos.git?rev=7e60f60fbc144265cf5ac1ec238b87744967d4eb#7e60f60fbc144265cf5ac1ec238b87744967d4eb"
 dependencies = [
  "content-identity",
  "rkyv",
