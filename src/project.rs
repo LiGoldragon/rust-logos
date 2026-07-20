@@ -30,7 +30,7 @@
 //! in the EncodedLogos value and transcribed.
 
 use core_logos::{
-    Alias, ArrayExpression, AssociatedType, Attribute, Block, Call, Callee, ClosureExpression,
+    ArrayExpression, AssociatedType, Attribute, Block, Call, Callee, ClosureExpression,
     ConfigurationAttribute, ConfigurationPredicate, Const, DeriveGroup, EncodedItem, Enumeration,
     Expression, Field, FieldInitializer, Function, GenericParameter, Generics, HelperDerive,
     ImplBlock, ImplItem, ImplTraitType, IndexExpression, IntegerLiteral, IntegerRepresentation,
@@ -490,20 +490,6 @@ impl ProjectRust for Enumeration {
             .map(|variant| variant.project(names))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(quote! { #attributes #visibility enum #name #generics { #(#variants),* } })
-    }
-}
-
-impl ProjectRust for Alias {
-    fn project<Resolver: NameResolver + ?Sized>(
-        &self,
-        names: &Resolver,
-    ) -> Result<TokenStream, Error> {
-        let attributes = self.attributes.project_preamble(names)?;
-        let visibility = self.visibility.project(names)?;
-        let name = self.name.project(names)?;
-        let generics = self.generics.project(names)?;
-        let target = self.target.project(names)?;
-        Ok(quote! { #attributes #visibility type #name #generics = #target; })
     }
 }
 
@@ -1053,7 +1039,6 @@ impl ProjectRust for EncodedItem {
             EncodedItem::Newtype(newtype) => newtype.project(names),
             EncodedItem::Struct(structure) => structure.project(names),
             EncodedItem::Enumeration(enumeration) => enumeration.project(names),
-            EncodedItem::Alias(alias) => alias.project(names),
             EncodedItem::ImplBlock(impl_block) => impl_block.project(names),
             EncodedItem::Function(function) => function.project(names),
             EncodedItem::Use(use_import) => use_import.project(names),
@@ -1101,10 +1086,9 @@ impl RustSource {
     }
 
     /// Project several EncodedLogos items in a *single* `prettyplease` pass — the
-    /// blank-line layout between them is prettyplease's own (consecutive scalar type
-    /// aliases pack with no blank; a `use` after them takes no blank either). This is
-    /// the block-level render the fixed module prelude needs: the four scalar aliases
-    /// as one blank-free block. For a one-item slice it equals [`Self::project_item`].
+    /// blank-line layout between them is prettyplease's own. This is the block-level
+    /// render used for ordered generated declarations. For a one-item slice it equals
+    /// [`Self::project_item`].
     pub fn project_items<Resolver: NameResolver + ?Sized>(
         items: &[EncodedItem],
         names: &Resolver,

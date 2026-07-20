@@ -24,7 +24,7 @@
 //! ## The subset boundary
 //!
 //! The two-way subset is exactly what EncodedLogos models: the data item kinds
-//! (newtype, named-field struct, enum, type alias) plus impl blocks and functions
+//! (newtype, named-field struct, enum) plus impl blocks and functions
 //! whose bodies are the closed Tier-1 expression vocabulary, the brace-group `use`
 //! import (`use <base>::{<names>};` — the module prelude's NOTA import), and — from
 //! the layout-3 kernel extension — associated types and consts in impls, `const`

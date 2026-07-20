@@ -34,7 +34,8 @@ body/argument brackets, chosen by node kind); stored-identifier realization (the
 identifier leaves); formatting (the single `prettyplease` pass); and the
 `// @generated` header (a fixed module literal). Everything semantic is stored data
 transcribed in order — visibility, the derive sets, struct-vs-newtype, attribute
-order, cfg predicates, field names, wrapped types.
+order, cfg predicates, field names, wrapped types. Transparent type aliases are
+not modeled or emitted; each encoded type has one canonical name.
 
 ## The formatting-authority split
 
@@ -66,7 +67,7 @@ The two-way subset is exactly the constructs EncodedLogos models as data:
 
 - **In subset (byte-exact two-way):** tuple newtypes with an inherited-visibility
   field, named-field structs (fields carrying their own stored visibility), unit /
-  tuple-payload / struct-payload enums, type aliases, generic parameters by kind
+  tuple-payload / struct-payload enums, generic parameters by kind
   (type parameters with path bounds, lifetime parameters), the witnessed attribute
   vocabulary — a bare dotted tool path, a `derive(...)` group, a
   `cfg_attr(feature = "...", …)` wrapper, and a namespaced helper `derive` — and
@@ -97,7 +98,7 @@ A reference (`&String`, `&mut Formatter<'_>`), an `impl Trait` bound
 (`impl Into<String>`), and a slice (`[&'static str]`) are in subset in
 **function-signature and const-type position** (a parameter, return, or const type)
 and out of subset in **wire-data position** (a struct field, an enum-variant payload,
-a newtype's wrapped type, an alias target). This is not a special case bolted on:
+a newtype's wrapped type). This is not a special case bolted on:
 wire data is owned, and a borrowed, sliced, or `impl`-typed field is a genuinely
 different thing from a borrowed return. The reader encodes the distinction as two
 verbs on the type noun — `ReadRust` for wire-data types (strict: references, slices,

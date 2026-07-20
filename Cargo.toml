@@ -13,9 +13,9 @@ name = "textual_rust"
 path = "src/lib.rs"
 
 [dependencies]
-core-logos       = { git = "https://github.com/LiGoldragon/core-logos.git", rev = "22b12a474c86cf812c89b41054d4e26e870ec70c" }
-name-table       = { git = "https://github.com/LiGoldragon/protos.git", rev = "f12a80c85d9d27ac4432b86b7d3095e8387c6fa9" }
-content-identity = { git = "https://github.com/LiGoldragon/protos.git", rev = "f12a80c85d9d27ac4432b86b7d3095e8387c6fa9" }
+core-logos       = { git = "https://github.com/LiGoldragon/core-logos.git", rev = "7fabf6d42f458963c6b4bf526284ba88087a71c7" }
+name-table       = { git = "https://github.com/LiGoldragon/protos.git", rev = "e9983d6220856a011886145ed0ef0cc41c9bf597" }
+content-identity = { git = "https://github.com/LiGoldragon/protos.git", rev = "e9983d6220856a011886145ed0ef0cc41c9bf597" }
 proc-macro2      = "1"
 quote            = "1"
 syn              = { version = "2", features = ["full", "parsing", "printing", "extra-traits"] }

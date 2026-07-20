@@ -62,7 +62,7 @@ fn round_trip_golden_item(marker: &str, table: &mut NameTable) -> EncodedItem {
 /// with a `parse::<Self>()` turbofish, and round-trips byte-exact.
 #[test]
 fn class_b_from_str_impl_round_trips_with_associated_type_and_turbofish() {
-    let mut table = NameTable::new();
+    let mut table = NameTable::new(name_table::IdentifierNamespace::Logos);
     let core = round_trip_golden_item("impl std::str::FromStr for Input", &mut table);
     let EncodedItem::ImplBlock(impl_block) = core else {
         panic!("a trait impl block");
@@ -80,7 +80,7 @@ fn class_b_from_str_impl_round_trips_with_associated_type_and_turbofish() {
 /// reference plus a `'_` lifetime argument) and round-trips byte-exact.
 #[test]
 fn class_b_display_impl_round_trips_with_mut_formatter() {
-    let mut table = NameTable::new();
+    let mut table = NameTable::new(name_table::IdentifierNamespace::Logos);
     let _ = round_trip_golden_item("impl std::fmt::Display for Input", &mut table);
 }
 
@@ -88,7 +88,7 @@ fn class_b_display_impl_round_trips_with_mut_formatter() {
 /// whose body is another match) returning `&'static str`, and round-trips byte-exact.
 #[test]
 fn class_d_nested_match_name_method_round_trips() {
-    let mut table = NameTable::new();
+    let mut table = NameTable::new(name_table::IdentifierNamespace::Logos);
     let core = round_trip_golden_item("impl SignalObjectName", &mut table);
     let EncodedItem::ImplBlock(impl_block) = core else {
         panic!("an inherent impl block");
@@ -111,7 +111,7 @@ fn class_d_nested_match_name_method_round_trips() {
 /// This is the last class-D gap the layout-4 tuple-field visibility closes.
 #[test]
 fn class_d_trace_event_declaration_round_trips_with_pub_tuple_field() {
-    let mut table = NameTable::new();
+    let mut table = NameTable::new(name_table::IdentifierNamespace::Logos);
     let core = round_trip_golden_item("pub struct TraceEvent(pub ObjectName)", &mut table);
     let EncodedItem::Newtype(newtype) = core else {
         panic!("a tuple newtype declaration");
@@ -126,7 +126,7 @@ fn class_d_trace_event_declaration_round_trips_with_pub_tuple_field() {
 /// Class D: the `TraceEvent` newtype-plus-impl round-trips byte-exact.
 #[test]
 fn class_d_trace_event_impl_round_trips() {
-    let mut table = NameTable::new();
+    let mut table = NameTable::new(name_table::IdentifierNamespace::Logos);
     let _ = round_trip_golden_item("impl TraceEvent", &mut table);
 }
 
@@ -134,7 +134,7 @@ fn class_d_trace_event_impl_round_trips() {
 /// carry hexadecimal integer literals as stringless value-plus-representation data.
 #[test]
 fn class_c_short_header_module_round_trips_with_hex_consts() {
-    let mut table = NameTable::new();
+    let mut table = NameTable::new(name_table::IdentifierNamespace::Logos);
     let core = round_trip_golden_item("pub mod short_header", &mut table);
     let EncodedItem::Module(module) = core else {
         panic!("a module");
@@ -163,7 +163,7 @@ fn class_c_short_header_module_round_trips_with_hex_consts() {
 /// byte-exact with a decimal literal.
 #[test]
 fn class_c_top_level_const_round_trips_decimal() {
-    let mut table = NameTable::new();
+    let mut table = NameTable::new(name_table::IdentifierNamespace::Logos);
     let core = round_trip_golden_item("const SIGNAL_SHORT_HEADER_BYTE_COUNT", &mut table);
     let EncodedItem::Const(Const { value, .. }) = core else {
         panic!("a top-level const");
@@ -182,7 +182,7 @@ fn class_c_top_level_const_round_trips_decimal() {
 /// byte-exact.
 #[test]
 fn class_c_associated_const_array_round_trips() {
-    let mut table = NameTable::new();
+    let mut table = NameTable::new(name_table::IdentifierNamespace::Logos);
     let core = round_trip_golden_item(
         "impl signal_frame::SignalOperationHeads for Input",
         &mut table,
@@ -211,7 +211,7 @@ fn class_c_associated_const_array_round_trips() {
 /// loudly and typed, and nothing interns across the battery.
 #[test]
 fn out_of_vocabulary_kernel_constructs_fail_loudly_and_typed() {
-    let mut table = NameTable::new();
+    let mut table = NameTable::new(name_table::IdentifierNamespace::Logos);
 
     type ErrorMatches = fn(&Error) -> bool;
     let cases: &[(&str, ErrorMatches)] = &[

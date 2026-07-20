@@ -1,23 +1,18 @@
-//! The generated-module prelude round-trips byte-exact: the four scalar type
-//! aliases (as one blank-free block) and the cfg-gated NOTA import each decode from
-//! their golden text into EncodedLogos and project back to the exact golden bytes.
-//! This is the block-level acceptance the fixed module prelude depends on.
+//! The generated-module prelude retains only its cfg-gated NOTA import. Scalar
+//! aliases are not part of the encoded Logos algebra and are rejected at the Rust
+//! codec boundary.
 
 use name_table::{NameResolver, NameTable};
 use textual_rust::{DecodeAtomically, RustSource};
 
-/// The scalar-alias block exactly as it heads every schema-rust golden — four
-/// `#[rustfmt::skip]` type aliases packed with no blank line between them.
-const SCALAR_ALIASES: &str = "#[rustfmt::skip]\npub type String = std::string::String;\n#[rustfmt::skip]\npub type Integer = u64;\n#[rustfmt::skip]\npub type Boolean = bool;\n#[rustfmt::skip]\npub type Path = std::string::String;\n";
-
-/// The cfg-gated NOTA import exactly as it heads every schema-rust golden.
+/// The cfg-gated NOTA import carried by generated modules.
 const NOTA_IMPORT: &str = "#[rustfmt::skip]\n#[cfg(feature = \"nota-text\")]\npub use nota::{NotaDecodeError, NotaEncode, NotaSource};\n";
 
 /// Decode every top-level item in `text` and project the whole batch back through a
-/// single prettyplease pass — the block-level round-trip.
+/// single prettyplease pass.
 fn round_trip_block(text: &str) -> String {
     let source = RustSource::new(text);
-    let mut table = NameTable::new();
+    let mut table = NameTable::new(name_table::IdentifierNamespace::Logos);
     let items = source
         .parse_items()
         .expect("prelude block parses")
@@ -27,11 +22,6 @@ fn round_trip_block(text: &str) -> String {
     RustSource::project_items(&items, &table as &dyn NameResolver)
         .expect("project")
         .into_string()
-}
-
-#[test]
-fn the_scalar_alias_block_round_trips_byte_exact() {
-    assert_eq!(round_trip_block(SCALAR_ALIASES), SCALAR_ALIASES);
 }
 
 #[test]

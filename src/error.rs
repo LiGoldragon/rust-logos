@@ -13,9 +13,9 @@ use thiserror::Error;
 #[derive(Debug, Clone, Error)]
 pub enum Error {
     /// A top-level item kind the EncodedLogos algebra does not model — a trait
-    /// definition, a trait alias, a `use` re-export, a module, a macro invocation, a
-    /// union, a const, or a static. The modeled kinds are newtype, named-field
-    /// struct, enum, type alias, impl block, and function.
+    /// definition, a trait alias, a type alias, a `use` re-export, a module, a macro
+    /// invocation, a union, a const, or a static. The modeled kinds are newtype,
+    /// named-field struct, enum, impl block, and function.
     #[error("out-of-subset item: {construct} is not one of the modeled item kinds")]
     UnsupportedItem { construct: &'static str },
 

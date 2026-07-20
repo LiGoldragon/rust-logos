@@ -51,8 +51,8 @@ derive stays on one line, so a single emission is byte-exact in both layouts.
 
 ## The subset boundary
 
-The two-way subset is exactly what EncodedLogos models: the four item kinds — newtype,
-named-field struct, enum, type alias — over the witnessed
+The two-way subset is exactly what EncodedLogos models: newtype, named-field
+struct, and enum declarations over the witnessed
 attribute/visibility/generic/type vocabulary. **Out of subset, failing loudly:**
 trait definitions, impl blocks, free functions, `use` re-exports, modules, macros,
 unions, const generics, reference/tuple/other non-path types, tuple newtypes with a
@@ -68,9 +68,10 @@ if and when Logos models method bodies as data.
 
 - **encode∘decode = identity on prettyplease-canonical text** — every in-subset
   golden item `decode → EncodedLogos → encode` reproduces its byte-exact golden text.
-  Coverage over the copied corpus: **153 in-subset items round-tripped byte-exact**
-  (38 newtypes, 30 structs, 48 enums, 37 aliases) versus **304 out-of-subset
-  frontier items** (254 impl blocks, 19 trait definitions, 14 modules, plus smaller
+  Coverage over the copied corpus is historical and must not be treated as a
+  generator acceptance oracle; type aliases are now out of subset. The active
+  proof is canonical codec round trips and generated-program behavior. The corpus
+  retains **304 out-of-subset frontier items** (254 impl blocks, 19 trait definitions, 14 modules, plus smaller
   edges). The impl/trait frontier is exactly the daemon-runtime and formulaic-impl
   surface EncodedLogos does not model as data.
 - **decode∘encode = identity on EncodedLogos** — `core-logos`'s golden-pair fixtures

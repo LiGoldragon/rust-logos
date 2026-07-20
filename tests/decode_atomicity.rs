@@ -21,8 +21,10 @@ fn a_failed_decode_leaves_the_name_table_unchanged() {
     // back; the reference-typed second field is out of subset.
     let item = only_item("pub struct Bad { pub good: Thing, pub broken: &'static str }");
 
-    let mut table = NameTable::new();
-    table.intern(Name::new("Preexisting"));
+    let mut table = NameTable::new(name_table::IdentifierNamespace::Logos);
+    table
+        .intern(Name::new("Preexisting"))
+        .expect("fixture name fits Logos namespace");
     let length_before = table.len();
     let identity_before = table.identity().expect("identity before");
 
@@ -45,13 +47,17 @@ fn a_failed_decode_leaves_the_name_table_unchanged() {
 /// Each out-of-subset construct fails loudly with the typed variant that names it.
 #[test]
 fn out_of_subset_constructs_fail_loudly_and_typed() {
-    let mut table = NameTable::new();
+    let mut table = NameTable::new(name_table::IdentifierNamespace::Logos);
 
     type ErrorMatches = fn(&Error) -> bool;
     let cases: &[(&str, ErrorMatches)] = &[
         (
             "pub trait Foo {}",
             |e| matches!(e, Error::UnsupportedItem { construct } if construct.contains("trait")),
+        ),
+        (
+            "pub type Convenience = Concrete;",
+            |e| matches!(e, Error::UnsupportedItem { construct } if construct.contains("type alias")),
         ),
         // A bare `use path::Name;` is out of subset — only the brace-group import
         // (the module prelude's NOTA import) is modeled.

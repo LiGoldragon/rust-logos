@@ -36,7 +36,7 @@ fn every_in_subset_golden_item_round_trips_byte_exact() {
 
     for (name, source_text) in GOLDENS {
         let source = RustSource::new(*source_text);
-        let mut table = NameTable::new();
+        let mut table = NameTable::new(name_table::IdentifierNamespace::Logos);
         let coverage = Coverage::survey(&source, &mut table).expect("golden parses and surveys");
 
         let in_subset = coverage.in_subset_count();

@@ -17,7 +17,7 @@ fn only_item(source: &str) -> syn::Item {
 /// names it, and nothing interns across the whole battery.
 #[test]
 fn out_of_vocabulary_bodies_fail_loudly_and_typed() {
-    let mut table = NameTable::new();
+    let mut table = NameTable::new(name_table::IdentifierNamespace::Logos);
 
     type ErrorMatches = fn(&Error) -> bool;
     let cases: &[(&str, ErrorMatches)] = &[
@@ -95,8 +95,10 @@ fn a_partly_in_vocabulary_impl_leaks_no_name() {
          }",
     );
 
-    let mut table = NameTable::new();
-    table.intern(Name::new("Preexisting"));
+    let mut table = NameTable::new(name_table::IdentifierNamespace::Logos);
+    table
+        .intern(Name::new("Preexisting"))
+        .expect("fixture name fits Logos namespace");
     let length_before = table.len();
     let identity_before = table.identity().expect("identity before");
 

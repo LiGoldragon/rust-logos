@@ -65,7 +65,7 @@ fn assert_round_trips_byte_exact(item: &syn::Item, table: &mut NameTable) -> Enc
 fn the_six_newtype_impl_blocks_and_their_from_impls_round_trip_byte_exact() {
     let source = RustSource::new(SPIRIT_GOLDEN);
     let items = source.parse_items().expect("golden parses");
-    let mut table = NameTable::new();
+    let mut table = NameTable::new(name_table::IdentifierNamespace::Logos);
 
     let mut proven = 0usize;
     for item in &items {
@@ -111,7 +111,7 @@ fn the_newtype_impls_split_into_inherent_and_from_by_the_trait_slot() {
     let items = RustSource::new(SPIRIT_GOLDEN)
         .parse_items()
         .expect("golden parses");
-    let mut table = NameTable::new();
+    let mut table = NameTable::new(name_table::IdentifierNamespace::Logos);
 
     let mut inherent = 0usize;
     let mut trait_impls = 0usize;
@@ -151,7 +151,7 @@ fn a_qualified_trait_call_body_round_trips_byte_exact() {
     let item = only_item(
         "impl Widget {\n    fn rendered(&self) -> String {\n        <Self as Encoder>::encode(self)\n    }\n}",
     );
-    let mut table = NameTable::new();
+    let mut table = NameTable::new(name_table::IdentifierNamespace::Logos);
     let core = assert_round_trips_byte_exact(&item, &mut table);
     assert!(matches!(core, EncodedItem::ImplBlock(_)));
 }
@@ -160,7 +160,7 @@ fn a_qualified_trait_call_body_round_trips_byte_exact() {
 #[test]
 fn a_free_function_round_trips_byte_exact() {
     let item = only_item("pub fn wrap(payload: Integer) -> Topic {\n    Topic::new(payload)\n}");
-    let mut table = NameTable::new();
+    let mut table = NameTable::new(name_table::IdentifierNamespace::Logos);
     let core = assert_round_trips_byte_exact(&item, &mut table);
     assert!(matches!(core, EncodedItem::Function(_)));
 }
@@ -173,7 +173,7 @@ fn a_match_over_self_with_string_literal_arms_round_trips_byte_exact() {
     let item = only_item(
         "impl Route {\n    fn name(self) -> &'static str {\n        match self {\n            Self::Record(_) => \"Record\",\n            Self::Observe(_) => \"Observe\",\n        }\n    }\n}",
     );
-    let mut table = NameTable::new();
+    let mut table = NameTable::new(name_table::IdentifierNamespace::Logos);
     let _ = table.intern(Name::new("preexisting"));
     let core = assert_round_trips_byte_exact(&item, &mut table);
     assert!(matches!(core, EncodedItem::ImplBlock(_)));
