@@ -20,12 +20,13 @@
 
 use core_logos::{
     Alias, ArrayExpression, AssociatedType, Attribute, Block, Call, Callee, ConfigurationAttribute,
-    ConfigurationPredicate, Const, CoreItem, DeriveGroup, Enumeration, Expression, Field, Function,
-    GenericParameter, Generics, HelperDerive, ImplBlock, ImplItem, ImplTraitType, IntegerLiteral,
-    IntegerRepresentation, LifetimeParameter, Match, MatchArm, MethodCall, Module, Newtype,
-    Parameter, PathNode, Pattern, PatternElement, QualifiedPath, Receiver, ReferenceExpression,
-    ReferenceMutability, ReferenceType, SliceType, Struct, TupleFieldAccess, TupleVariantPattern,
-    TypeApplication, TypeParameter, TypeReference, Use, Variant, VariantPayload, Visibility,
+    ConfigurationPredicate, Const, DeriveGroup, EncodedItem, Enumeration, Expression, Field,
+    Function, GenericParameter, Generics, HelperDerive, ImplBlock, ImplItem, ImplTraitType,
+    IntegerLiteral, IntegerRepresentation, LifetimeParameter, Match, MatchArm, MethodCall, Module,
+    Newtype, Parameter, PathNode, Pattern, PatternElement, QualifiedPath, Receiver,
+    ReferenceExpression, ReferenceMutability, ReferenceType, SliceType, Struct, TupleFieldAccess,
+    TupleVariantPattern, TypeApplication, TypeParameter, TypeReference, Use, Variant,
+    VariantPayload, Visibility,
 };
 use name_table::{Identifier, Name, NameInterner};
 use quote::ToTokens;
@@ -66,9 +67,9 @@ impl ReadAttributePreamble for [syn::Attribute] {
 }
 
 impl ReadRust for syn::Item {
-    type Logos = CoreItem;
+    type Logos = EncodedItem;
 
-    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<CoreItem, Error> {
+    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<EncodedItem, Error> {
         match self {
             syn::Item::Struct(structure) => structure.read(interner),
             syn::Item::Enum(enumeration) => enumeration.read(interner),
@@ -107,12 +108,12 @@ impl ReadRust for syn::Item {
 }
 
 impl ReadRust for syn::ItemStruct {
-    type Logos = CoreItem;
+    type Logos = EncodedItem;
 
-    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<CoreItem, Error> {
+    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<EncodedItem, Error> {
         let attributes = self.attrs.read_preamble(interner)?;
         let visibility = self.vis.read(interner)?;
-        let name = interner.intern(Name::new(self.ident.to_string()));
+        let name = interner.intern(Name::new(self.ident.to_string()))?;
         match &self.fields {
             syn::Fields::Named(named) => {
                 let generics = self.generics.read(interner)?;
@@ -121,7 +122,7 @@ impl ReadRust for syn::ItemStruct {
                     .iter()
                     .map(|field| field.read(interner))
                     .collect::<Result<Vec<_>, _>>()?;
-                Ok(CoreItem::Struct(Struct {
+                Ok(EncodedItem::Struct(Struct {
                     visibility,
                     attributes,
                     name,
@@ -150,7 +151,7 @@ impl ReadRust for syn::ItemStruct {
                 // the `pub`-field form round-trips instead of failing out of subset.
                 let wrapped_visibility = field.vis.read(interner)?;
                 let wrapped = field.ty.read(interner)?;
-                Ok(CoreItem::Newtype(Newtype {
+                Ok(EncodedItem::Newtype(Newtype {
                     visibility,
                     attributes,
                     name,
@@ -164,19 +165,19 @@ impl ReadRust for syn::ItemStruct {
 }
 
 impl ReadRust for syn::ItemEnum {
-    type Logos = CoreItem;
+    type Logos = EncodedItem;
 
-    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<CoreItem, Error> {
+    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<EncodedItem, Error> {
         let attributes = self.attrs.read_preamble(interner)?;
         let visibility = self.vis.read(interner)?;
-        let name = interner.intern(Name::new(self.ident.to_string()));
+        let name = interner.intern(Name::new(self.ident.to_string()))?;
         let generics = self.generics.read(interner)?;
         let variants = self
             .variants
             .iter()
             .map(|variant| variant.read(interner))
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(CoreItem::Enumeration(Enumeration {
+        Ok(EncodedItem::Enumeration(Enumeration {
             visibility,
             attributes,
             name,
@@ -200,7 +201,7 @@ impl ReadRust for syn::Variant {
                 construct: "an enum variant with an explicit discriminant",
             });
         }
-        let name = interner.intern(Name::new(self.ident.to_string()));
+        let name = interner.intern(Name::new(self.ident.to_string()))?;
         let payload = match &self.fields {
             syn::Fields::Unit => VariantPayload::Unit,
             syn::Fields::Unnamed(unnamed) => {
@@ -228,15 +229,15 @@ impl ReadRust for syn::Variant {
 }
 
 impl ReadRust for syn::ItemType {
-    type Logos = CoreItem;
+    type Logos = EncodedItem;
 
-    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<CoreItem, Error> {
+    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<EncodedItem, Error> {
         let attributes = self.attrs.read_preamble(interner)?;
         let visibility = self.vis.read(interner)?;
-        let name = interner.intern(Name::new(self.ident.to_string()));
+        let name = interner.intern(Name::new(self.ident.to_string()))?;
         let generics = self.generics.read(interner)?;
         let target = self.ty.read(interner)?;
-        Ok(CoreItem::Alias(Alias {
+        Ok(EncodedItem::Alias(Alias {
             visibility,
             attributes,
             name,
@@ -247,9 +248,9 @@ impl ReadRust for syn::ItemType {
 }
 
 impl ReadRust for syn::ItemUse {
-    type Logos = CoreItem;
+    type Logos = EncodedItem;
 
-    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<CoreItem, Error> {
+    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<EncodedItem, Error> {
         if self.leading_colon.is_some() {
             return Err(Error::UnsupportedUseTree {
                 construct: "a leading-colon absolute import",
@@ -262,7 +263,7 @@ impl ReadRust for syn::ItemUse {
         // name, a glob, or a rename is out of subset.
         let mut base = Vec::new();
         let group = self.tree.read_use_group(interner, &mut base)?;
-        Ok(CoreItem::Use(Use {
+        Ok(EncodedItem::Use(Use {
             visibility,
             attributes,
             base: PathNode { segments: base },
@@ -272,9 +273,9 @@ impl ReadRust for syn::ItemUse {
 }
 
 impl ReadRust for syn::ItemMod {
-    type Logos = CoreItem;
+    type Logos = EncodedItem;
 
-    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<CoreItem, Error> {
+    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<EncodedItem, Error> {
         if self.unsafety.is_some() {
             return Err(Error::UnsupportedItem {
                 construct: "an unsafe module",
@@ -289,7 +290,7 @@ impl ReadRust for syn::ItemMod {
         };
         let attributes = self.attrs.read_preamble(interner)?;
         let visibility = self.vis.read(interner)?;
-        let name = interner.intern(Name::new(self.ident.to_string()));
+        let name = interner.intern(Name::new(self.ident.to_string()))?;
         // The witnessed module is the `short_header` const module — its members are
         // consts. A module carrying an enum, impl, or other item is a broader growth
         // point (it re-exposes the derive-group trailing-comma layout that a
@@ -304,7 +305,7 @@ impl ReadRust for syn::ItemMod {
                 }),
             })
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(CoreItem::Module(Module {
+        Ok(EncodedItem::Module(Module {
             visibility,
             attributes,
             name,
@@ -314,10 +315,10 @@ impl ReadRust for syn::ItemMod {
 }
 
 impl ReadRust for syn::ItemConst {
-    type Logos = CoreItem;
+    type Logos = EncodedItem;
 
-    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<CoreItem, Error> {
-        Ok(CoreItem::Const(self.read_const(interner)?))
+    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<EncodedItem, Error> {
+        Ok(EncodedItem::Const(self.read_const(interner)?))
     }
 }
 
@@ -338,7 +339,7 @@ impl ReadConst for syn::ItemConst {
         }
         let attributes = self.attrs.read_preamble(interner)?;
         let visibility = self.vis.read(interner)?;
-        let name = interner.intern(Name::new(self.ident.to_string()));
+        let name = interner.intern(Name::new(self.ident.to_string()))?;
         let type_reference = self.ty.read_signature_type(interner)?;
         let value = self.expr.read(interner)?;
         Ok(Const {
@@ -365,7 +366,7 @@ impl ReadConst for syn::ImplItemConst {
         }
         let attributes = self.attrs.read_preamble(interner)?;
         let visibility = self.vis.read(interner)?;
-        let name = interner.intern(Name::new(self.ident.to_string()));
+        let name = interner.intern(Name::new(self.ident.to_string()))?;
         let type_reference = self.ty.read_signature_type(interner)?;
         let value = self.expr.read(interner)?;
         Ok(Const {
@@ -398,7 +399,7 @@ impl ReadUseGroup for syn::UseTree {
     ) -> Result<Vec<Identifier>, Error> {
         match self {
             syn::UseTree::Path(path) => {
-                base.push(interner.intern(Name::new(path.ident.to_string())));
+                base.push(interner.intern(Name::new(path.ident.to_string()))?);
                 path.tree.read_use_group(interner, base)
             }
             syn::UseTree::Group(group) => {
@@ -409,7 +410,7 @@ impl ReadUseGroup for syn::UseTree {
                             construct: "a use group element that is not a plain name",
                         });
                     };
-                    names.push(interner.intern(Name::new(name.ident.to_string())));
+                    names.push(interner.intern(Name::new(name.ident.to_string()))?);
                 }
                 Ok(names)
             }
@@ -435,7 +436,7 @@ impl ReadRust for syn::Field {
         let identifier = self.ident.as_ref().ok_or(Error::UnsupportedType {
             construct: "an unnamed field in a named-field position",
         })?;
-        let name = interner.intern(Name::new(identifier.to_string()));
+        let name = interner.intern(Name::new(identifier.to_string()))?;
         let type_reference = self.ty.read(interner)?;
         Ok(Field {
             visibility,
@@ -650,7 +651,7 @@ impl ReadConfigurationPredicate for syn::Meta {
                     ..
                 }) = &name_value.value
                 {
-                    let identifier = interner.intern(Name::new(feature.value()));
+                    let identifier = interner.intern(Name::new(feature.value()))?;
                     return Ok(ConfigurationPredicate::Feature(identifier));
                 }
             }
@@ -674,7 +675,7 @@ impl ReadRust for syn::Path {
                         construct: "a generic argument on a non-type path",
                     });
                 }
-                Ok(interner.intern(Name::new(segment.ident.to_string())))
+                Ok(interner.intern(Name::new(segment.ident.to_string()))?)
             })
             .collect::<Result<Vec<_>, _>>()?;
         Ok(PathNode { segments })
@@ -721,7 +722,7 @@ impl ReadTypeReference for syn::Path {
         let mut head_segments = Vec::with_capacity(self.segments.len());
         let mut arguments: Option<Vec<TypeReference>> = None;
         for (index, segment) in self.segments.iter().enumerate() {
-            head_segments.push(interner.intern(Name::new(segment.ident.to_string())));
+            head_segments.push(interner.intern(Name::new(segment.ident.to_string()))?);
             match &segment.arguments {
                 syn::PathArguments::None => {}
                 syn::PathArguments::AngleBracketed(bracketed) if index == last => {
@@ -734,7 +735,8 @@ impl ReadTypeReference for syn::Path {
                             // A lifetime argument (`Formatter<'_>`, an explicit
                             // `'static`): stored as the interned lifetime name.
                             syn::GenericArgument::Lifetime(lifetime) => {
-                                let name = interner.intern(Name::new(lifetime.ident.to_string()));
+                                let name =
+                                    interner.intern(Name::new(lifetime.ident.to_string()))?;
                                 collected.push(TypeReference::Lifetime(name));
                             }
                             _ => {
@@ -820,7 +822,7 @@ impl ReadRust for syn::GenericParam {
     ) -> Result<GenericParameter, Error> {
         match self {
             syn::GenericParam::Type(parameter) => {
-                let name = interner.intern(Name::new(parameter.ident.to_string()));
+                let name = interner.intern(Name::new(parameter.ident.to_string()))?;
                 let mut bounds = Vec::with_capacity(parameter.bounds.len());
                 for bound in &parameter.bounds {
                     let syn::TypeParamBound::Trait(trait_bound) = bound else {
@@ -848,7 +850,7 @@ impl ReadRust for syn::GenericParam {
                         construct: "a bounded lifetime parameter",
                     });
                 }
-                let name = interner.intern(Name::new(parameter.lifetime.ident.to_string()));
+                let name = interner.intern(Name::new(parameter.lifetime.ident.to_string()))?;
                 Ok(GenericParameter::Lifetime(LifetimeParameter { name }))
             }
             syn::GenericParam::Const(_) => Err(Error::UnsupportedGenericParameter {
@@ -870,9 +872,9 @@ impl ReadRust for syn::GenericParam {
 // ---------------------------------------------------------------------------
 
 impl ReadRust for syn::ItemImpl {
-    type Logos = CoreItem;
+    type Logos = EncodedItem;
 
-    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<CoreItem, Error> {
+    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<EncodedItem, Error> {
         if self.unsafety.is_some() {
             return Err(Error::UnsupportedItem {
                 construct: "an unsafe impl",
@@ -902,7 +904,7 @@ impl ReadRust for syn::ItemImpl {
             .iter()
             .map(|item| item.read(interner))
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(CoreItem::ImplBlock(ImplBlock {
+        Ok(EncodedItem::ImplBlock(ImplBlock {
             attributes,
             generics,
             implemented_trait,
@@ -961,7 +963,7 @@ impl ReadRust for syn::ImplItemType {
                 rendered: "an attribute on an associated type".to_string(),
             });
         }
-        let name = interner.intern(Name::new(self.ident.to_string()));
+        let name = interner.intern(Name::new(self.ident.to_string()))?;
         let value = self.ty.read_signature_type(interner)?;
         Ok(AssociatedType { name, value })
     }
@@ -985,14 +987,14 @@ impl ReadRust for syn::ImplItemFn {
 }
 
 impl ReadRust for syn::ItemFn {
-    type Logos = CoreItem;
+    type Logos = EncodedItem;
 
-    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<CoreItem, Error> {
+    fn read<Interner: NameInterner>(&self, interner: &mut Interner) -> Result<EncodedItem, Error> {
         let attributes = self.attrs.read_preamble(interner)?;
         let visibility = self.vis.read(interner)?;
         let parts = self.sig.read_function_signature(interner)?;
         let body = self.block.read(interner)?;
-        Ok(CoreItem::Function(
+        Ok(EncodedItem::Function(
             parts.into_function(attributes, visibility, body),
         ))
     }
@@ -1069,7 +1071,7 @@ impl ReadFunctionSignature for syn::Signature {
                 construct: "a variadic function",
             });
         }
-        let name = interner.intern(Name::new(self.ident.to_string()));
+        let name = interner.intern(Name::new(self.ident.to_string()))?;
         let generics = self.generics.read(interner)?;
         let mut receiver = None;
         let mut parameters = Vec::new();
@@ -1153,7 +1155,7 @@ impl ReadParameter for syn::PatType {
                 construct: "a complex parameter binding",
             });
         }
-        let name = interner.intern(Name::new(ident.ident.to_string()));
+        let name = interner.intern(Name::new(ident.ident.to_string()))?;
         let type_reference = self.ty.read_signature_type(interner)?;
         Ok(Parameter {
             name,
@@ -1188,7 +1190,8 @@ impl ReadSignatureType for syn::Type {
                 let lifetime = reference
                     .lifetime
                     .as_ref()
-                    .map(|lifetime| interner.intern(Name::new(lifetime.ident.to_string())));
+                    .map(|lifetime| interner.intern(Name::new(lifetime.ident.to_string())))
+                    .transpose()?;
                 let referent = Box::new(reference.elem.read_signature_type(interner)?);
                 Ok(TypeReference::Reference(ReferenceType {
                     lifetime,
@@ -1324,7 +1327,7 @@ impl ReadRust for syn::Expr {
                     Some(turbofish) => turbofish.read_turbofish(interner)?,
                 };
                 let receiver = Box::new(method_call.receiver.read(interner)?);
-                let method = interner.intern(Name::new(method_call.method.to_string()));
+                let method = interner.intern(Name::new(method_call.method.to_string()))?;
                 let arguments = method_call
                     .args
                     .iter()
@@ -1416,7 +1419,7 @@ impl ReadCallee for syn::Expr {
                     construct: "a generic argument in a qualified path",
                 });
             }
-            let identifier = interner.intern(Name::new(segment.ident.to_string()));
+            let identifier = interner.intern(Name::new(segment.ident.to_string()))?;
             if index < qself.position {
                 trait_segments.push(identifier);
             } else {
@@ -1454,7 +1457,7 @@ impl ReadTurbofish for syn::AngleBracketedGenericArguments {
             .map(|argument| match argument {
                 syn::GenericArgument::Type(inner) => inner.read(interner),
                 syn::GenericArgument::Lifetime(lifetime) => Ok(TypeReference::Lifetime(
-                    interner.intern(Name::new(lifetime.ident.to_string())),
+                    interner.intern(Name::new(lifetime.ident.to_string()))?,
                 )),
                 _ => Err(Error::UnsupportedExpression {
                     construct: "a non-type turbofish argument",
@@ -1590,7 +1593,7 @@ impl ReadPatternElement for syn::Pat {
                     });
                 }
                 Ok(PatternElement::Binding(
-                    interner.intern(Name::new(ident.ident.to_string())),
+                    interner.intern(Name::new(ident.ident.to_string()))?,
                 ))
             }
             _ => Err(Error::UnsupportedPattern {

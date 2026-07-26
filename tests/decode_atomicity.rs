@@ -2,7 +2,7 @@
 //! errors naming the construct, and a failed decode leaves the NameTable
 //! byte-identical — the interning-atomicity law extended to the Rust edge.
 
-use name_table::{Name, NameTable};
+use name_table::{IdentifierNamespace, Name, NameTable};
 use textual_rust::error::Error;
 use textual_rust::{DecodeAtomically, RustSource};
 
@@ -21,8 +21,10 @@ fn a_failed_decode_leaves_the_name_table_unchanged() {
     // back; the reference-typed second field is out of subset.
     let item = only_item("pub struct Bad { pub good: Thing, pub broken: &'static str }");
 
-    let mut table = NameTable::new();
-    table.intern(Name::new("Preexisting"));
+    let mut table = NameTable::new(IdentifierNamespace::Logos);
+    table
+        .intern(Name::new("Preexisting"))
+        .expect("preexisting name interns");
     let length_before = table.len();
     let identity_before = table.identity().expect("identity before");
 
@@ -45,7 +47,7 @@ fn a_failed_decode_leaves_the_name_table_unchanged() {
 /// Each out-of-subset construct fails loudly with the typed variant that names it.
 #[test]
 fn out_of_subset_constructs_fail_loudly_and_typed() {
-    let mut table = NameTable::new();
+    let mut table = NameTable::new(IdentifierNamespace::Logos);
 
     type ErrorMatches = fn(&Error) -> bool;
     let cases: &[(&str, ErrorMatches)] = &[

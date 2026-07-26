@@ -3,7 +3,7 @@
 //! is reported honestly — in-subset (round-tripped) versus out-of-subset (the
 //! trait/impl frontier) — per fixture and in total.
 
-use name_table::NameTable;
+use name_table::{IdentifierNamespace, NameTable};
 use textual_rust::{Coverage, RustSource};
 
 /// The four copied schema-rust goldens (see `tests/fixtures/PROVENANCE.md`).
@@ -36,7 +36,7 @@ fn every_in_subset_golden_item_round_trips_byte_exact() {
 
     for (name, source_text) in GOLDENS {
         let source = RustSource::new(*source_text);
-        let mut table = NameTable::new();
+        let mut table = NameTable::new(IdentifierNamespace::Logos);
         let coverage = Coverage::survey(&source, &mut table).expect("golden parses and surveys");
 
         let in_subset = coverage.in_subset_count();

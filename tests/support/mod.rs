@@ -5,7 +5,7 @@
 #![allow(dead_code)]
 
 use core_logos::{
-    Attribute, ConfigurationAttribute, ConfigurationPredicate, CoreItem, DeriveGroup, Field,
+    Attribute, ConfigurationAttribute, ConfigurationPredicate, DeriveGroup, EncodedItem, Field,
     Generics, Newtype, PathNode, Struct, TypeReference, Visibility,
 };
 use name_table::{Identifier, Name, NameTable};
@@ -15,14 +15,18 @@ pub fn path(names: &mut NameTable, segments: &[&str]) -> PathNode {
     PathNode {
         segments: segments
             .iter()
-            .map(|segment| names.intern(Name::new(*segment)))
+            .map(|segment| {
+                names
+                    .intern(Name::new(*segment))
+                    .expect("fixture name interns")
+            })
             .collect(),
     }
 }
 
 /// Intern a single name.
 pub fn identifier(names: &mut NameTable, name: &str) -> Identifier {
-    names.intern(Name::new(name))
+    names.intern(Name::new(name)).expect("fixture name interns")
 }
 
 /// The three-attribute golden preamble carried by every wire data item, in stored
@@ -56,11 +60,11 @@ pub fn golden_preamble(names: &mut NameTable) -> Vec<Attribute> {
 }
 
 /// `CommitSequence` — a public newtype wrapping `Integer`, with the full preamble.
-pub fn commit_sequence(names: &mut NameTable) -> CoreItem {
+pub fn commit_sequence(names: &mut NameTable) -> EncodedItem {
     let attributes = golden_preamble(names);
     let name = identifier(names, "CommitSequence");
     let wrapped = TypeReference::Path(path(names, &["Integer"]));
-    CoreItem::Newtype(Newtype {
+    EncodedItem::Newtype(Newtype {
         visibility: Visibility::Public,
         attributes,
         name,
@@ -71,7 +75,7 @@ pub fn commit_sequence(names: &mut NameTable) -> CoreItem {
 
 /// `DatabaseMarker` — a public struct with two public fields and one private field,
 /// carrying visibility as data at both the item and field level.
-pub fn database_marker(names: &mut NameTable) -> CoreItem {
+pub fn database_marker(names: &mut NameTable) -> EncodedItem {
     let attributes = golden_preamble(names);
     let name = identifier(names, "DatabaseMarker");
     let fields = vec![
@@ -91,7 +95,7 @@ pub fn database_marker(names: &mut NameTable) -> CoreItem {
             type_reference: TypeReference::Path(path(names, &["StateDigest"])),
         },
     ];
-    CoreItem::Struct(Struct {
+    EncodedItem::Struct(Struct {
         visibility: Visibility::Public,
         attributes,
         name,

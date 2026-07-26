@@ -7,7 +7,7 @@
 
 mod support;
 
-use name_table::NameTable;
+use name_table::{IdentifierNamespace, NameTable};
 use textual_rust::{DecodeAtomically, RustSource};
 
 /// The exact `CommitSequence` golden, as schema-rust emits it.
@@ -24,7 +24,7 @@ pub struct CommitSequence(Integer);
 /// The writer projects the `CommitSequence` fixture to its byte-exact golden text.
 #[test]
 fn the_writer_projects_commit_sequence_to_its_byte_exact_golden() {
-    let mut names = NameTable::new();
+    let mut names = NameTable::new(IdentifierNamespace::Logos);
     let core = support::commit_sequence(&mut names);
     let text = RustSource::project_item(&core, &names).expect("project");
     assert_eq!(text.as_str(), COMMIT_SEQUENCE_GOLDEN);
@@ -34,10 +34,10 @@ fn the_writer_projects_commit_sequence_to_its_byte_exact_golden() {
 /// both golden-pair fixtures (the newtype and the field-visibility-bearing struct).
 #[test]
 fn decode_after_encode_is_identity_on_core_with_a_stable_hash() {
-    let builders: [fn(&mut NameTable) -> core_logos::CoreItem; 2] =
+    let builders: [fn(&mut NameTable) -> core_logos::EncodedItem; 2] =
         [support::commit_sequence, support::database_marker];
     for build in builders {
-        let mut names = NameTable::new();
+        let mut names = NameTable::new(IdentifierNamespace::Logos);
         let core = build(&mut names);
         let before = core.content_identity().expect("hash before");
 
@@ -45,7 +45,8 @@ fn decode_after_encode_is_identity_on_core_with_a_stable_hash() {
         // space (an extension of the encode table), so pre-existing names re-intern
         // to their original identifiers and the reconstructed value is identical.
         let text = RustSource::project_item(&core, &names).expect("project");
-        let mut decode_table = NameTable::extend_from(&names);
+        let archive = names.to_archive_bytes().expect("archive name table");
+        let mut decode_table = NameTable::from_archive_bytes(&archive).expect("restore name table");
         let items = text.parse_items().expect("parse");
         assert_eq!(items.len(), 1, "one item per fixture");
         let decoded = items[0]

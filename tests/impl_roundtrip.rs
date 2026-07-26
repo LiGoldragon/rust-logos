@@ -4,8 +4,8 @@
 //! the qualified-trait-call and free-function vocabulary the copied corpus only
 //! exercises behind a `#[cfg]` (and so leaves out of subset).
 
-use core_logos::{CoreItem, TypeReference};
-use name_table::{Name, NameResolver, NameTable};
+use core_logos::{EncodedItem, TypeReference};
+use name_table::{IdentifierNamespace, Name, NameResolver, NameTable};
 use textual_rust::{DecodeAtomically, RustSource};
 
 const SPIRIT_GOLDEN: &str = include_str!("fixtures/spirit_generated.rs");
@@ -23,8 +23,8 @@ const NEWTYPES: &[&str] = &[
 
 /// The final segment of an impl block's self type, resolved to text — `Topic` for
 /// both `impl Topic` and `impl From<String> for Topic`.
-fn self_type_head_name(item: &CoreItem, names: &NameTable) -> Option<String> {
-    let CoreItem::ImplBlock(impl_block) = item else {
+fn self_type_head_name(item: &EncodedItem, names: &NameTable) -> Option<String> {
+    let EncodedItem::ImplBlock(impl_block) = item else {
         return None;
     };
     let head = match &impl_block.self_type {
@@ -45,7 +45,7 @@ fn only_item(source: &str) -> syn::Item {
 
 /// Decode one item, re-encode, and assert the re-encoding reproduces the item's
 /// prettyplease-canonical text byte-for-byte.
-fn assert_round_trips_byte_exact(item: &syn::Item, table: &mut NameTable) -> CoreItem {
+fn assert_round_trips_byte_exact(item: &syn::Item, table: &mut NameTable) -> EncodedItem {
     let canonical = RustSource::canonical_item(item);
     let core = item
         .decode_atomically(table)
@@ -65,7 +65,7 @@ fn assert_round_trips_byte_exact(item: &syn::Item, table: &mut NameTable) -> Cor
 fn the_six_newtype_impl_blocks_and_their_from_impls_round_trip_byte_exact() {
     let source = RustSource::new(SPIRIT_GOLDEN);
     let items = source.parse_items().expect("golden parses");
-    let mut table = NameTable::new();
+    let mut table = NameTable::new(IdentifierNamespace::Logos);
 
     let mut proven = 0usize;
     for item in &items {
@@ -74,7 +74,7 @@ fn the_six_newtype_impl_blocks_and_their_from_impls_round_trip_byte_exact() {
         let Ok(core) = item.decode_atomically(&mut table) else {
             continue;
         };
-        if !matches!(core, CoreItem::ImplBlock(_)) {
+        if !matches!(core, EncodedItem::ImplBlock(_)) {
             continue;
         }
         let Some(name) = self_type_head_name(&core, &table) else {
@@ -111,12 +111,12 @@ fn the_newtype_impls_split_into_inherent_and_from_by_the_trait_slot() {
     let items = RustSource::new(SPIRIT_GOLDEN)
         .parse_items()
         .expect("golden parses");
-    let mut table = NameTable::new();
+    let mut table = NameTable::new(IdentifierNamespace::Logos);
 
     let mut inherent = 0usize;
     let mut trait_impls = 0usize;
     for item in &items {
-        let Ok(CoreItem::ImplBlock(impl_block)) = item.decode_atomically(&mut table) else {
+        let Ok(EncodedItem::ImplBlock(impl_block)) = item.decode_atomically(&mut table) else {
             continue;
         };
         let head = match &impl_block.self_type {
@@ -151,18 +151,18 @@ fn a_qualified_trait_call_body_round_trips_byte_exact() {
     let item = only_item(
         "impl Widget {\n    fn rendered(&self) -> String {\n        <Self as Encoder>::encode(self)\n    }\n}",
     );
-    let mut table = NameTable::new();
+    let mut table = NameTable::new(IdentifierNamespace::Logos);
     let core = assert_round_trips_byte_exact(&item, &mut table);
-    assert!(matches!(core, CoreItem::ImplBlock(_)));
+    assert!(matches!(core, EncodedItem::ImplBlock(_)));
 }
 
-/// A free function is a top-level `CoreItem::Function`, not only an impl member.
+/// A free function is a top-level `EncodedItem::Function`, not only an impl member.
 #[test]
 fn a_free_function_round_trips_byte_exact() {
     let item = only_item("pub fn wrap(payload: Integer) -> Topic {\n    Topic::new(payload)\n}");
-    let mut table = NameTable::new();
+    let mut table = NameTable::new(IdentifierNamespace::Logos);
     let core = assert_round_trips_byte_exact(&item, &mut table);
-    assert!(matches!(core, CoreItem::Function(_)));
+    assert!(matches!(core, EncodedItem::Function(_)));
 }
 
 /// A `match self` over variant patterns mapping to string literals — the
@@ -173,8 +173,10 @@ fn a_match_over_self_with_string_literal_arms_round_trips_byte_exact() {
     let item = only_item(
         "impl Route {\n    fn name(self) -> &'static str {\n        match self {\n            Self::Record(_) => \"Record\",\n            Self::Observe(_) => \"Observe\",\n        }\n    }\n}",
     );
-    let mut table = NameTable::new();
-    let _ = table.intern(Name::new("preexisting"));
+    let mut table = NameTable::new(IdentifierNamespace::Logos);
+    table
+        .intern(Name::new("preexisting"))
+        .expect("preexisting name interns");
     let core = assert_round_trips_byte_exact(&item, &mut table);
-    assert!(matches!(core, CoreItem::ImplBlock(_)));
+    assert!(matches!(core, EncodedItem::ImplBlock(_)));
 }

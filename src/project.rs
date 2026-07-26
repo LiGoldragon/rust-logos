@@ -3,7 +3,7 @@
 //! One domain trait, [`ProjectRust`], implemented once per CoreLogos node kind —
 //! the verb-belongs-to-noun discipline. Each node projects the Rust tokens it
 //! already *is* and composes its children; totality is mechanical, because the
-//! closed [`CoreItem`] enum is matched with no wildcard arm and every child slot
+//! closed [`EncodedItem`] enum is matched with no wildcard arm and every child slot
 //! is itself a `ProjectRust` node. The [`NameResolver`] is threaded down the call
 //! tree and touched only at the identifier-bearing leaves ([`Identifier`] and each
 //! path segment), so a stringless Core realizes names at the last moment and
@@ -31,7 +31,7 @@
 
 use core_logos::{
     Alias, ArrayExpression, AssociatedType, Attribute, Block, Call, Callee, ClosureExpression,
-    ConfigurationAttribute, ConfigurationPredicate, Const, CoreItem, DeriveGroup, Enumeration,
+    ConfigurationAttribute, ConfigurationPredicate, Const, DeriveGroup, EncodedItem, Enumeration,
     Expression, Field, FieldInitializer, Function, GenericParameter, Generics, HelperDerive,
     ImplBlock, ImplItem, ImplTraitType, IndexExpression, IntegerLiteral, IntegerRepresentation,
     LetBinding, LetStatement, LifetimeParameter, Match, MatchArm, MethodCall, Module, Newtype,
@@ -1042,7 +1042,7 @@ impl ProjectRust for Use {
     }
 }
 
-impl ProjectRust for CoreItem {
+impl ProjectRust for EncodedItem {
     fn project<Resolver: NameResolver + ?Sized>(
         &self,
         names: &Resolver,
@@ -1050,15 +1050,15 @@ impl ProjectRust for CoreItem {
         // Exhaustive over the closed algebra — no wildcard arm, so a new item kind
         // is a compile error until its projection is written.
         match self {
-            CoreItem::Newtype(newtype) => newtype.project(names),
-            CoreItem::Struct(structure) => structure.project(names),
-            CoreItem::Enumeration(enumeration) => enumeration.project(names),
-            CoreItem::Alias(alias) => alias.project(names),
-            CoreItem::ImplBlock(impl_block) => impl_block.project(names),
-            CoreItem::Function(function) => function.project(names),
-            CoreItem::Use(use_import) => use_import.project(names),
-            CoreItem::Const(const_item) => const_item.project(names),
-            CoreItem::Module(module) => module.project(names),
+            EncodedItem::Newtype(newtype) => newtype.project(names),
+            EncodedItem::Struct(structure) => structure.project(names),
+            EncodedItem::Enumeration(enumeration) => enumeration.project(names),
+            EncodedItem::Alias(alias) => alias.project(names),
+            EncodedItem::ImplBlock(impl_block) => impl_block.project(names),
+            EncodedItem::Function(function) => function.project(names),
+            EncodedItem::Use(use_import) => use_import.project(names),
+            EncodedItem::Const(const_item) => const_item.project(names),
+            EncodedItem::Module(module) => module.project(names),
         }
     }
 }
@@ -1091,7 +1091,7 @@ impl RustSource {
     /// stored data on the item, so it is part of the projected tokens, not
     /// prepended here.
     pub fn project_item<Resolver: NameResolver + ?Sized>(
-        item: &CoreItem,
+        item: &EncodedItem,
         names: &Resolver,
     ) -> Result<Self, Error> {
         let tokens = item.project(names)?;
@@ -1106,7 +1106,7 @@ impl RustSource {
     /// the block-level render the fixed module prelude needs: the four scalar aliases
     /// as one blank-free block. For a one-item slice it equals [`Self::project_item`].
     pub fn project_items<Resolver: NameResolver + ?Sized>(
-        items: &[CoreItem],
+        items: &[EncodedItem],
         names: &Resolver,
     ) -> Result<Self, Error> {
         let mut tokens = TokenStream::new();
@@ -1124,7 +1124,7 @@ impl RustSource {
     /// byte-exactness is the acceptance unit; this is the convenience
     /// whole-module view.
     pub fn project_module<Resolver: NameResolver + ?Sized>(
-        items: &[CoreItem],
+        items: &[EncodedItem],
         names: &Resolver,
     ) -> Result<Self, Error> {
         let mut text = String::new();

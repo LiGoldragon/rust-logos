@@ -3,7 +3,7 @@
 //! their golden text into CoreLogos and project back to the exact golden bytes.
 //! This is the block-level acceptance the fixed module prelude depends on.
 
-use name_table::{NameResolver, NameTable};
+use name_table::{IdentifierNamespace, NameResolver, NameTable};
 use textual_rust::{DecodeAtomically, RustSource};
 
 /// The scalar-alias block exactly as it heads every schema-rust golden — four
@@ -17,7 +17,7 @@ const NOTA_IMPORT: &str = "#[rustfmt::skip]\n#[cfg(feature = \"nota-text\")]\npu
 /// single prettyplease pass — the block-level round-trip.
 fn round_trip_block(text: &str) -> String {
     let source = RustSource::new(text);
-    let mut table = NameTable::new();
+    let mut table = NameTable::new(IdentifierNamespace::Logos);
     let items = source
         .parse_items()
         .expect("prelude block parses")

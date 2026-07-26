@@ -6,7 +6,7 @@
 //! the Rust edge. The unit of byte-exactness is the *item*: an item's prettyplease
 //! canonical form is the acceptance oracle, and a round-trip must reproduce it.
 
-use core_logos::CoreItem;
+use core_logos::EncodedItem;
 use name_table::{NameResolver, NameTable};
 
 use crate::error::Error;
@@ -20,11 +20,11 @@ pub trait DecodeAtomically {
     /// Read this item into CoreLogos, committing its names only if the whole item
     /// is in subset. A single out-of-subset construct fails the whole item and
     /// leaks no name.
-    fn decode_atomically(&self, table: &mut NameTable) -> Result<CoreItem, Error>;
+    fn decode_atomically(&self, table: &mut NameTable) -> Result<EncodedItem, Error>;
 }
 
 impl DecodeAtomically for syn::Item {
-    fn decode_atomically(&self, table: &mut NameTable) -> Result<CoreItem, Error> {
+    fn decode_atomically(&self, table: &mut NameTable) -> Result<EncodedItem, Error> {
         table.try_intern(|transaction| self.read(transaction))
     }
 }
@@ -60,7 +60,7 @@ impl RustSource {
 pub enum ItemOutcome {
     /// An in-subset item: its CoreLogos value, its canonical golden text, and the
     /// text produced by re-encoding the CoreLogos value. Boxed because a decoded
-    /// `CoreItem` (an impl block carries whole method-body trees) dwarfs the
+    /// `EncodedItem` (an impl block carries whole method-body trees) dwarfs the
     /// out-of-subset error.
     InSubset(Box<InSubsetItem>),
     /// An out-of-subset item: the typed error naming the construct that stopped it.
@@ -71,7 +71,7 @@ pub enum ItemOutcome {
 #[derive(Debug)]
 pub struct InSubsetItem {
     /// The decoded stringless CoreLogos value.
-    pub core: CoreItem,
+    pub core: EncodedItem,
     /// The item's prettyplease canonical text (its exact golden bytes).
     pub canonical: RustSource,
     /// The text produced by projecting `core` back to Rust.

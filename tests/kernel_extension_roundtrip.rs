@@ -8,9 +8,9 @@
 //! outside the closed set fails loudly and typed.
 
 use core_logos::{
-    Const, CoreItem, Expression, ImplItem, IntegerRepresentation, TypeReference, Visibility,
+    Const, EncodedItem, Expression, ImplItem, IntegerRepresentation, TypeReference, Visibility,
 };
-use name_table::{NameResolver, NameTable};
+use name_table::{IdentifierNamespace, NameResolver, NameTable};
 use textual_rust::error::Error;
 use textual_rust::{DecodeAtomically, RustSource};
 
@@ -27,7 +27,7 @@ fn only_item(source: &str) -> syn::Item {
 /// as the corpus survey does, and return the decoded CoreLogos value of the first
 /// item whose canonical golden text contains `marker`, asserting it round-trips
 /// byte-exact against the real golden bytes.
-fn round_trip_golden_item(marker: &str, table: &mut NameTable) -> CoreItem {
+fn round_trip_golden_item(marker: &str, table: &mut NameTable) -> EncodedItem {
     let items = RustSource::new(SPIRIT_GOLDEN)
         .parse_items()
         .expect("golden parses");
@@ -62,9 +62,9 @@ fn round_trip_golden_item(marker: &str, table: &mut NameTable) -> CoreItem {
 /// with a `parse::<Self>()` turbofish, and round-trips byte-exact.
 #[test]
 fn class_b_from_str_impl_round_trips_with_associated_type_and_turbofish() {
-    let mut table = NameTable::new();
+    let mut table = NameTable::new(IdentifierNamespace::Logos);
     let core = round_trip_golden_item("impl std::str::FromStr for Input", &mut table);
-    let CoreItem::ImplBlock(impl_block) = core else {
+    let EncodedItem::ImplBlock(impl_block) = core else {
         panic!("a trait impl block");
     };
     assert!(
@@ -80,7 +80,7 @@ fn class_b_from_str_impl_round_trips_with_associated_type_and_turbofish() {
 /// reference plus a `'_` lifetime argument) and round-trips byte-exact.
 #[test]
 fn class_b_display_impl_round_trips_with_mut_formatter() {
-    let mut table = NameTable::new();
+    let mut table = NameTable::new(IdentifierNamespace::Logos);
     let _ = round_trip_golden_item("impl std::fmt::Display for Input", &mut table);
 }
 
@@ -88,9 +88,9 @@ fn class_b_display_impl_round_trips_with_mut_formatter() {
 /// whose body is another match) returning `&'static str`, and round-trips byte-exact.
 #[test]
 fn class_d_nested_match_name_method_round_trips() {
-    let mut table = NameTable::new();
+    let mut table = NameTable::new(IdentifierNamespace::Logos);
     let core = round_trip_golden_item("impl SignalObjectName", &mut table);
-    let CoreItem::ImplBlock(impl_block) = core else {
+    let EncodedItem::ImplBlock(impl_block) = core else {
         panic!("an inherent impl block");
     };
     let ImplItem::Method(name_method) = &impl_block.items[0] else {
@@ -111,9 +111,9 @@ fn class_d_nested_match_name_method_round_trips() {
 /// This is the last class-D gap the layout-4 tuple-field visibility closes.
 #[test]
 fn class_d_trace_event_declaration_round_trips_with_pub_tuple_field() {
-    let mut table = NameTable::new();
+    let mut table = NameTable::new(IdentifierNamespace::Logos);
     let core = round_trip_golden_item("pub struct TraceEvent(pub ObjectName)", &mut table);
-    let CoreItem::Newtype(newtype) = core else {
+    let EncodedItem::Newtype(newtype) = core else {
         panic!("a tuple newtype declaration");
     };
     assert_eq!(
@@ -126,7 +126,7 @@ fn class_d_trace_event_declaration_round_trips_with_pub_tuple_field() {
 /// Class D: the `TraceEvent` newtype-plus-impl round-trips byte-exact.
 #[test]
 fn class_d_trace_event_impl_round_trips() {
-    let mut table = NameTable::new();
+    let mut table = NameTable::new(IdentifierNamespace::Logos);
     let _ = round_trip_golden_item("impl TraceEvent", &mut table);
 }
 
@@ -134,16 +134,16 @@ fn class_d_trace_event_impl_round_trips() {
 /// carry hexadecimal integer literals as stringless value-plus-representation data.
 #[test]
 fn class_c_short_header_module_round_trips_with_hex_consts() {
-    let mut table = NameTable::new();
+    let mut table = NameTable::new(IdentifierNamespace::Logos);
     let core = round_trip_golden_item("pub mod short_header", &mut table);
-    let CoreItem::Module(module) = core else {
+    let EncodedItem::Module(module) = core else {
         panic!("a module");
     };
     let first_const = module
         .items
         .iter()
         .find_map(|item| match item {
-            CoreItem::Const(const_item) => Some(const_item),
+            EncodedItem::Const(const_item) => Some(const_item),
             _ => None,
         })
         .expect("the module carries consts");
@@ -163,9 +163,9 @@ fn class_c_short_header_module_round_trips_with_hex_consts() {
 /// byte-exact with a decimal literal.
 #[test]
 fn class_c_top_level_const_round_trips_decimal() {
-    let mut table = NameTable::new();
+    let mut table = NameTable::new(IdentifierNamespace::Logos);
     let core = round_trip_golden_item("const SIGNAL_SHORT_HEADER_BYTE_COUNT", &mut table);
-    let CoreItem::Const(Const { value, .. }) = core else {
+    let EncodedItem::Const(Const { value, .. }) = core else {
         panic!("a top-level const");
     };
     assert!(
@@ -182,12 +182,12 @@ fn class_c_top_level_const_round_trips_decimal() {
 /// byte-exact.
 #[test]
 fn class_c_associated_const_array_round_trips() {
-    let mut table = NameTable::new();
+    let mut table = NameTable::new(IdentifierNamespace::Logos);
     let core = round_trip_golden_item(
         "impl signal_frame::SignalOperationHeads for Input",
         &mut table,
     );
-    let CoreItem::ImplBlock(impl_block) = core else {
+    let EncodedItem::ImplBlock(impl_block) = core else {
         panic!("a trait impl");
     };
     let ImplItem::AssociatedConst(heads) = &impl_block.items[0] else {
@@ -211,7 +211,7 @@ fn class_c_associated_const_array_round_trips() {
 /// loudly and typed, and nothing interns across the battery.
 #[test]
 fn out_of_vocabulary_kernel_constructs_fail_loudly_and_typed() {
-    let mut table = NameTable::new();
+    let mut table = NameTable::new(IdentifierNamespace::Logos);
 
     type ErrorMatches = fn(&Error) -> bool;
     let cases: &[(&str, ErrorMatches)] = &[
