@@ -1,130 +1,153 @@
-//! The crate-boundary error type.
-//!
-//! Every failure that crosses the codec boundary is a typed variant that names the
-//! offending construct. The decode direction never guesses and never skips: an
-//! out-of-subset construct produces a loud, named error rather than a silent
-//! omission, so the principled subset is enforced by construction rather than by
-//! convention. Name-projection and syn-parse failures come from the layers below.
+//! Typed refusals at the Rust TextualForm boundary.
 
-use name_table::NameTableError;
-use thiserror::Error;
+use raw_discovery::{BlockDiscoveryError, SourceBound};
+use signal_sema_translator::{VocabularyEncodedId, VocabularyRoot};
+use structural_codec::{AuthoringError, DecodeError, EncodeError, TableError};
 
-/// A failure at the `textual-rust` codec boundary.
-#[derive(Debug, Clone, Error)]
+/// Why an opaque emitted-name token is not a Rust identifier in the supported
+/// structural subset.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RustIdentifierRefusal {
+    /// The token has no characters.
+    Empty,
+    /// The first character is outside the accepted identifier class.
+    InvalidLeadingCharacter,
+    /// A later character is outside the accepted identifier class.
+    InvalidContinuationCharacter,
+    /// `_` alone is not an item identifier.
+    UnderscoreOnly,
+    /// The token is a Rust keyword or reserved word.
+    ReservedWord,
+}
+
+/// A typed failure while sealing or evaluating the Slice One Rust vocabulary.
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
-    /// A top-level item kind the CoreLogos algebra does not model — a trait
-    /// definition, a trait alias, a `use` re-export, a module, a macro invocation, a
-    /// union, a const, or a static. The modeled kinds are newtype, named-field
-    /// struct, enum, type alias, impl block, and function.
-    #[error("out-of-subset item: {construct} is not one of the modeled item kinds")]
-    UnsupportedItem { construct: &'static str },
+    /// A caller supplied a Rust-owned vocabulary position under another root.
+    #[error("{position} must use the Rust vocabulary root, found {found:?}")]
+    NonRustVocabulary {
+        /// The position being validated.
+        position: &'static str,
+        /// The supplied root.
+        found: VocabularyRoot,
+    },
 
-    /// A `use` import shape outside the modeled brace-group form
-    /// (`use <base>::{<names>};`) — a bare `use path::Name;`, a glob, a rename, a
-    /// nested group, or a leading-colon absolute path.
-    #[error("out-of-subset use import: {construct}")]
-    UnsupportedUseTree { construct: &'static str },
+    /// A whole-Logos name position was not a Universal identity.
+    #[error("{position} must use the Universal vocabulary root, found {found:?}")]
+    NonUniversalIdentity {
+        /// The position being validated.
+        position: &'static str,
+        /// The supplied root.
+        found: VocabularyRoot,
+    },
 
-    /// An associated item inside an impl block that is not a method — an associated
-    /// const, an associated type, or a macro. Only functions are modeled as impl
-    /// members.
-    #[error("out-of-subset impl item: {construct} (only methods are modeled)")]
-    UnsupportedImplItem { construct: &'static str },
+    /// A required translator-issued vocabulary identity did not resolve.
+    #[error("{position} has no spelling in the supplied immutable vocabulary")]
+    MissingVocabularyName {
+        /// The position being validated.
+        position: &'static str,
+        /// The unresolved identity.
+        encoded_id: VocabularyEncodedId,
+    },
 
-    /// A function signature outside the modeled shape — an `async`/`const`/`unsafe`
-    /// function, an explicit ABI, a variadic, a `&mut self` or `mut self` receiver, a
-    /// typed-`self` receiver, or a parameter whose pattern is not a plain identifier.
-    #[error("out-of-subset function signature: {construct}")]
-    UnsupportedFunctionSignature { construct: &'static str },
+    /// A fixed Rust vocabulary position resolved to the wrong exact word.
+    #[error("{position} resolved to {found:?}; expected {expected:?}")]
+    VocabularySpellingMismatch {
+        /// The position being validated.
+        position: &'static str,
+        /// The expected Rust spelling.
+        expected: &'static str,
+        /// The spelling in the supplied vocabulary.
+        found: String,
+    },
 
-    /// A statement in a function or method body. A Tier-1 body is a single tail
-    /// expression, so a `let` binding, an early `return`, a nested item, a macro
-    /// statement, or a semicolon-terminated expression statement is out of subset.
-    #[error(
-        "out-of-subset body statement: {construct} (a Tier-1 body is a single tail expression)"
-    )]
-    UnsupportedStatement { construct: &'static str },
+    /// An emitted name did not satisfy the conservative Rust identifier subset.
+    #[error("opaque emitted-name token {token:?} is invalid: {reason:?}")]
+    InvalidRustIdentifier {
+        /// The supplied token.
+        token: String,
+        /// The structural refusal.
+        reason: RustIdentifierRefusal,
+    },
 
-    /// An expression outside the closed Tier-1 body vocabulary — a struct literal, an
-    /// `if`/`loop`/`while`/block expression, a closure, a binary or unary operator, a
-    /// tuple, an index, a `&mut` borrow, a non-string literal, a turbofish call, or a
-    /// named field access.
-    #[error("out-of-subset body expression: {construct}")]
-    UnsupportedExpression { construct: &'static str },
+    /// One encoded identity was projected twice.
+    #[error("encoded identity {encoded_id:?} has more than one emitted-name projection")]
+    DuplicateProjectionIdentity {
+        /// The repeated identity.
+        encoded_id: VocabularyEncodedId,
+    },
 
-    /// A match-arm pattern outside the closed Tier-1 vocabulary — a wildcard arm, a
-    /// literal pattern, a struct pattern, an or-pattern, a match guard, or a complex
-    /// sub-pattern. The modeled patterns are a unit-like path and a tuple variant of
-    /// wildcards and identifier bindings.
-    #[error("out-of-subset match pattern: {construct}")]
-    UnsupportedPattern { construct: &'static str },
+    /// Two different identities were assigned the same emitted token.
+    #[error("opaque emitted-name token {token:?} is associated with different identities")]
+    ProjectionTokenConflict {
+        /// The colliding token.
+        token: String,
+    },
 
-    /// A tuple struct with a field count other than one. Only the single-field
-    /// tuple newtype (`struct Name(Wrapped);`) is modeled.
-    #[error(
-        "out-of-subset item: a tuple struct with {field_count} fields (only the single-field tuple newtype is modeled)"
-    )]
-    MultiFieldTupleStruct { field_count: usize },
+    /// An emitted item or reference has no opaque token at the boundary.
+    #[error("encoded identity {encoded_id:?} has no opaque Rust emitted-name projection")]
+    MissingProjection {
+        /// The unresolved identity.
+        encoded_id: VocabularyEncodedId,
+    },
 
-    /// A unit struct (`struct Name;`). A named-field struct with an empty body
-    /// (`struct Name {}`) is modeled; the unit form is a distinct construct that
-    /// does not round-trip to it.
-    #[error(
-        "out-of-subset item: a unit struct (`struct Name;`); only named-field structs are modeled"
-    )]
-    UnitStruct,
+    /// No cue-terminated Rust struct item was present.
+    #[error("Rust source contains no struct item")]
+    NoRustItems,
 
-    /// An attribute outside the modeled vocabulary. The modeled vocabulary is a
-    /// bare dotted tool path, a `derive(...)` group, a `cfg_attr(...)` wrapping an
-    /// inner attribute, and a namespaced helper `derive` attribute.
-    #[error("out-of-subset attribute: {rendered}")]
-    UnsupportedAttribute { rendered: String },
+    /// Source outside one discovered newtype block was not solely its typed
+    /// visibility position and trivia.
+    #[error("unsupported Rust source outside the struct cue at {bound:?}")]
+    UnsupportedItemPrefix {
+        /// The refused source range.
+        bound: SourceBound,
+    },
 
-    /// A `cfg_attr` whose predicate is not a bare `feature = \"...\"`. Only the
-    /// feature predicate is modeled.
-    #[error("out-of-subset cfg predicate: {rendered} (only `feature = \"...\"` is modeled)")]
-    UnsupportedConfigurationPredicate { rendered: String },
+    /// A discovered struct did not have the one tuple field shape.
+    #[error("struct block at {bound:?} is not an attribute-free one-field tuple newtype")]
+    UnsupportedNewtypeShape {
+        /// The refused item range.
+        bound: SourceBound,
+    },
 
-    /// A visibility outside the modeled set (`pub`, `pub(crate)`, `pub(in path)`,
-    /// or none). A `pub(self)`/`pub(super)` shorthand or any other restricted form
-    /// is not modeled.
-    #[error("out-of-subset visibility: {rendered}")]
-    UnsupportedVisibility { rendered: String },
+    /// A sealed typed record returned a value under a different role or value
+    /// kind than its record declares.
+    #[error("shared evaluator did not return the declared {position} typed position")]
+    TypedPositionMismatch {
+        /// The typed position being reified.
+        position: &'static str,
+    },
 
-    /// A type expression outside the modeled set. The modeled set is a bare path
-    /// and a generic application over paths; references, tuples, trait objects,
-    /// slices, and function pointers are not modeled.
-    #[error("out-of-subset type: {construct}")]
-    UnsupportedType { construct: &'static str },
+    /// Source remained after the final discovered item.
+    #[error("unsupported Rust source after the final newtype at {bound:?}")]
+    TrailingSource {
+        /// The refused source range.
+        bound: SourceBound,
+    },
 
-    /// A generic parameter outside the modeled set (a plain type parameter with
-    /// path bounds, or a lifetime parameter). A const generic is a by-design
-    /// growth point the surveyed goldens exercise but the Core does not yet carry.
-    #[error("out-of-subset generic parameter: {construct}")]
-    UnsupportedGenericParameter { construct: &'static str },
+    /// The raw pass-one rules refused the source.
+    #[error(transparent)]
+    Discovery(#[from] BlockDiscoveryError),
 
-    /// A `where` clause on a declaration. The witnessed wire declarations carry
-    /// none; a modeled declaration states its bounds inline on the parameter.
-    #[error("out-of-subset construct: a `where` clause on a declaration")]
-    WhereClause,
+    /// Authoring a typed position record failed.
+    #[error(transparent)]
+    Authoring(#[from] AuthoringError),
 
-    /// A generic bound that is not a plain trait path (a lifetime bound, a
-    /// `?Sized` relaxation, or a higher-ranked bound).
-    #[error("out-of-subset generic bound: {construct}")]
-    UnsupportedGenericBound { construct: &'static str },
+    /// The shared evaluator's table seal refused the vocabulary.
+    #[error(transparent)]
+    Table(Box<TableError<VocabularyRoot>>),
 
-    /// A name-projection failure: an identifier the resolver does not know (a torn
-    /// Core/NameTable pair).
-    #[error("name projection failed: {0}")]
-    Name(#[from] NameTableError),
+    /// The shared evaluator refused a typed decode position.
+    #[error(transparent)]
+    Decode(#[from] DecodeError<VocabularyRoot>),
 
-    /// A failure parsing Rust text into the syn AST the decode direction reads.
-    #[error("rust parse failed: {0}")]
-    Parse(String),
+    /// The shared evaluator refused a typed emission position.
+    #[error(transparent)]
+    Encode(#[from] EncodeError<VocabularyRoot>),
+}
 
-    /// A failure parsing the token stream the encode direction assembled back into
-    /// a syn item for the single prettyplease pass. An internal invariant break:
-    /// a well-formed projection always re-parses.
-    #[error("projected token stream did not re-parse as a rust item: {0}")]
-    Project(String),
+impl From<TableError<VocabularyRoot>> for Error {
+    fn from(error: TableError<VocabularyRoot>) -> Self {
+        Self::Table(Box::new(error))
+    }
 }

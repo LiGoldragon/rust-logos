@@ -1,5 +1,5 @@
 {
-  description = "textual-rust — the TextualRust form codec: the two-way syn/prettyplease bridge between Rust text and the stringless CoreLogos algebra";
+  description = "rust-logos — the structural Rust TextualForm for Logos";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
@@ -36,7 +36,7 @@
           });
         };
         devShells.default = pkgs.mkShell {
-          name = "textual-rust";
+          name = "rust-logos";
           packages = [ pkgs.jujutsu toolchain ];
         };
       });

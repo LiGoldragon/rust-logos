@@ -1,27 +1,30 @@
 [package]
-name         = "textual-rust"
-version      = "0.1.1"
+name         = "rust-logos"
+version      = "0.2.0"
+autotests    = false
 edition      = "2024"
 rust-version = "1.85"
 license      = "MIT OR Apache-2.0"
-repository   = "https://github.com/LiGoldragon/textual-rust"
-description  = "The TextualRust form codec: the two-way bridge between Rust TEXT and the stringless CoreLogos algebra. Reads a principled Rust subset into Logos through syn; projects Logos out as byte-exact prettyplease Rust. This is the foreign raw layer where syn and prettyplease are allowed; the Core sibling core-logos stays text-free."
+repository   = "https://github.com/LiGoldragon/rust-logos"
+description  = "The structural Rust TextualForm for Logos"
 publish      = false
 
 [lib]
-name = "textual_rust"
+name = "rust_logos"
 path = "src/lib.rs"
 
+[[test]]
+name = "slice_one"
+path = "tests/slice_one.rs"
+
 [dependencies]
-core-logos       = { git = "https://github.com/LiGoldragon/core-logos.git", rev = "ffb9ccdeac94b4e3401fc4bffa593589f0321fe5" }
-name-table       = { git = "https://github.com/LiGoldragon/name-table.git", rev = "196610e2907687dcb8dbd0d2dfaafe4aefd9fa27" }
-content-identity = { git = "https://github.com/LiGoldragon/content-identity.git", rev = "24b43bae5d9748b0e7f679c6ec9f85a643c4d36a" }
-structural-codec = { git = "https://github.com/LiGoldragon/structural-codec.git", rev = "23497c43f81b619158e5cfbd83a012eb63c4186f" }
-proc-macro2      = "1"
-quote            = "1"
-syn              = { version = "2", features = ["full", "parsing", "printing", "extra-traits"] }
-prettyplease     = "0.2"
-thiserror        = "2"
+core-logos             = { git = "https://github.com/LiGoldragon/core-logos.git", rev = "a7dd1e2b8d0c55d26e96c5b1b7154a534cf03e55" }
+name-table             = { git = "https://github.com/LiGoldragon/name-table.git", rev = "1f558eac44bd03034e51ad98e3a65ec16d8b8411" }
+raw-discovery          = { git = "https://github.com/LiGoldragon/raw-discovery.git", rev = "d979778aa9d79199785f7b683f1029534aea3604" }
+signal-sema-translator = { git = "https://github.com/LiGoldragon/signal-sema-translator.git", rev = "8ff7d0db033c756a0cd7999e72e564ca1c32b4aa" }
+structural-codec       = { git = "https://github.com/LiGoldragon/structural-codec.git", rev = "e47bec61c81fba80deb44c5920f6a15420bbf962" }
+rkyv                   = { version = "0.8", default-features = false, features = ["std", "bytecheck", "little_endian", "pointer_width_32", "unaligned"] }
+thiserror              = "2"
 
 [lints.rust]
 unsafe_code = "forbid"

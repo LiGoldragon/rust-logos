@@ -107,14 +107,16 @@ dependencies = [
 
 [[package]]
 name = "core-logos"
-version = "0.3.0"
-source = "git+https://github.com/LiGoldragon/core-logos.git?rev=ffb9ccdeac94b4e3401fc4bffa593589f0321fe5#ffb9ccdeac94b4e3401fc4bffa593589f0321fe5"
+version = "0.4.0"
+source = "git+https://github.com/LiGoldragon/core-logos.git?rev=a7dd1e2b8d0c55d26e96c5b1b7154a534cf03e55#a7dd1e2b8d0c55d26e96c5b1b7154a534cf03e55"
 dependencies = [
  "content-identity 0.3.0",
  "content-identity 0.4.0",
- "name-table",
- "protos",
+ "name-table 0.1.0",
+ "name-table 0.3.0",
+ "protos 0.3.0",
  "rkyv",
+ "signal-sema-translator",
  "thiserror",
 ]
 
@@ -227,6 +229,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "name-table"
+version = "0.3.0"
+source = "git+https://github.com/LiGoldragon/name-table.git?rev=1f558eac44bd03034e51ad98e3a65ec16d8b8411#1f558eac44bd03034e51ad98e3a65ec16d8b8411"
+dependencies = [
+ "content-identity 0.4.0",
+ "rkyv",
+ "thiserror",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -245,22 +257,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 
 [[package]]
-name = "prettyplease"
-version = "0.2.37"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "479ca8adacdd7ce8f1fb39ce9ecccbfe93a3f1344b3d0d97f20bc0196208f62b"
-dependencies = [
- "proc-macro2",
- "syn",
-]
-
-[[package]]
 name = "proc-macro2"
 version = "1.0.106"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8fd00f0bb2e90d81d1044c2b32617f68fcb9fa3bb7640c23e9c748e53fb30934"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "protos"
+version = "0.2.0"
+source = "git+https://github.com/LiGoldragon/protos.git?rev=0b4b17471053e8b40472225b5992cd3252e76d85#0b4b17471053e8b40472225b5992cd3252e76d85"
+dependencies = [
+ "content-identity 0.3.0",
+ "name-table 0.1.0",
+ "signal-frame",
+ "structural-codec 0.6.0",
 ]
 
 [[package]]
@@ -322,6 +335,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "raw-discovery"
+version = "0.3.0"
+source = "git+https://github.com/LiGoldragon/raw-discovery.git?rev=d979778aa9d79199785f7b683f1029534aea3604#d979778aa9d79199785f7b683f1029534aea3604"
+dependencies = [
+ "content-identity 0.3.0",
+ "rkyv",
+ "thiserror",
+]
+
+[[package]]
 name = "rend"
 version = "0.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -361,6 +384,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "rust-logos"
+version = "0.2.0"
+dependencies = [
+ "core-logos",
+ "name-table 0.3.0",
+ "raw-discovery 0.3.0",
+ "rkyv",
+ "signal-sema-translator",
+ "structural-codec 0.7.0",
+ "thiserror",
+]
+
+[[package]]
 name = "rustversion"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -394,6 +430,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "signal-sema-translator"
+version = "0.2.0"
+source = "git+https://github.com/LiGoldragon/signal-sema-translator.git?rev=8ff7d0db033c756a0cd7999e72e564ca1c32b4aa#8ff7d0db033c756a0cd7999e72e564ca1c32b4aa"
+dependencies = [
+ "name-table 0.3.0",
+ "protos 0.2.0",
+ "rkyv",
+ "signal-frame",
+ "thiserror",
+]
+
+[[package]]
 name = "simdutf8"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -411,8 +459,20 @@ version = "0.6.0"
 source = "git+https://github.com/LiGoldragon/structural-codec.git?rev=23497c43f81b619158e5cfbd83a012eb63c4186f#23497c43f81b619158e5cfbd83a012eb63c4186f"
 dependencies = [
  "content-identity 0.3.0",
- "name-table",
- "raw-discovery",
+ "name-table 0.1.0",
+ "raw-discovery 0.2.0",
+ "rkyv",
+ "thiserror",
+]
+
+[[package]]
+name = "structural-codec"
+version = "0.7.0"
+source = "git+https://github.com/LiGoldragon/structural-codec.git?rev=e47bec61c81fba80deb44c5920f6a15420bbf962#e47bec61c81fba80deb44c5920f6a15420bbf962"
+dependencies = [
+ "content-identity 0.3.0",
+ "name-table 0.3.0",
+ "raw-discovery 0.3.0",
  "rkyv",
  "thiserror",
 ]
@@ -426,21 +486,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
-]
-
-[[package]]
-name = "textual-rust"
-version = "0.1.1"
-dependencies = [
- "content-identity 0.3.0",
- "core-logos",
- "name-table",
- "prettyplease",
- "proc-macro2",
- "quote",
- "structural-codec",
- "syn",
- "thiserror",
 ]
 
 [[package]]

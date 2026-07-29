@@ -1,152 +1,537 @@
-//! The codec entry points: atomic per-item decode, per-item canonical rendering,
-//! and the golden-corpus coverage survey.
+//! The single Rust-specific evaluator object permitted for the first MVP.
 //!
-//! Decode interns through a [`NameTransaction`](name_table::NameTransaction) so a failed decode leaves the
-//! committed [`NameTable`] byte-identical — the interning-atomicity law extended to
-//! the Rust edge. The unit of byte-exactness is the *item*: an item's prettyplease
-//! canonical form is the acceptance oracle, and a round-trip must reproduce it.
+//! It owns only orchestration that the shared evaluator does not yet express:
+//! cue-to-termination item bounds, Rust adjacency, and fixed punctuation.
+//! Every semantic token is decoded and encoded by `StructuralEvaluator`
+//! against a real typed position record.
 
-use core_logos::EncodedItem;
-use name_table::{NameResolver, NameTable};
+use core_logos::{WholeLogos, WholeLogosItem, WholeLogosNewtype, WholeLogosVisibility};
+use name_table::Name;
+use raw_discovery::{
+    BlockDiscoveryError, BlockTree, CueTerminatedBlockCueEvidence, DiscoveredCueTerminatedBlock,
+    DiscoveredCueTerminatedBlockTree, SourceBound,
+};
+use signal_sema_translator::{VocabularyEncodedId, VocabularyRoot};
+use structural_codec::{
+    DeclarationAssignment, DecodeError, DecodeNameBindings, EncodedNameResolver, FieldRole,
+    FieldValue, NameOccurrence, ResolvedReference, StructuralEvaluator, StructuralValue,
+};
 
-use crate::error::Error;
-use crate::project::RustSource;
-use crate::read::ReadRust;
+use crate::vocabulary::{
+    DeclarationNamePosition, PARENTHESIS, PublicKeywordPosition, ReferencedTypePosition,
+    RustNewtypeRule, RustNewtypeVocabulary, STRUCT_CUE, StructKeywordPosition, constructor_for,
+};
+use crate::{Error, RustNameProjectionTable};
 
-/// Decode a single parsed item atomically — a verb on the `syn::Item` noun. On
-/// success the interned names commit into the table; on failure the table is left
-/// byte-identical, because interning ran through a rolled-back transaction.
-pub trait DecodeAtomically {
-    /// Read this item into CoreLogos, committing its names only if the whole item
-    /// is in subset. A single out-of-subset construct fails the whole item and
-    /// leaks no name.
-    fn decode_atomically(&self, table: &mut NameTable) -> Result<EncodedItem, Error>;
+/// Bidirectional structural Rust view for the attribute-free newtype slice.
+pub struct RustLogos {
+    vocabulary: RustNewtypeVocabulary,
 }
 
-impl DecodeAtomically for syn::Item {
-    fn decode_atomically(&self, table: &mut NameTable) -> Result<EncodedItem, Error> {
-        table.try_intern(|transaction| self.read(transaction))
-    }
-}
-
-impl RustSource {
-    /// Parse this Rust text into its top-level items through `syn`. Nested items
-    /// (inside a module) are not surfaced — the enclosing module is itself
-    /// out-of-subset, so only the top level is a decode candidate.
-    pub fn parse_items(&self) -> Result<Vec<syn::Item>, Error> {
-        let file =
-            syn::parse_file(self.as_str()).map_err(|error| Error::Parse(error.to_string()))?;
-        Ok(file.items)
+impl RustLogos {
+    /// Seat the already-sealed typed Rust vocabulary.
+    pub fn new(vocabulary: RustNewtypeVocabulary) -> Self {
+        Self { vocabulary }
     }
 
-    /// The prettyplease canonical text of one parsed `syn` item — the single-pass
-    /// render of the item in isolation. Because the goldens are themselves
-    /// prettyplease output, this reproduces the item's exact golden bytes, so it is
-    /// the byte-exact acceptance form a round-trip is checked against.
-    pub fn canonical_item(item: &syn::Item) -> Self {
-        let file = syn::File {
-            shebang: None,
-            attrs: Vec::new(),
-            items: vec![item.clone()],
-        };
-        Self::new(prettyplease::unparse(&file))
+    /// The exact structural rule data used for all semantic tokens.
+    pub fn vocabulary(&self) -> &RustNewtypeVocabulary {
+        &self.vocabulary
     }
-}
 
-/// The outcome of surveying one item in a golden corpus: either an in-subset item
-/// that decoded and re-encoded, or an out-of-subset item with the loud reason it
-/// could not decode.
-#[derive(Debug)]
-pub enum ItemOutcome {
-    /// An in-subset item: its CoreLogos value, its canonical golden text, and the
-    /// text produced by re-encoding the CoreLogos value. Boxed because a decoded
-    /// `EncodedItem` (an impl block carries whole method-body trees) dwarfs the
-    /// out-of-subset error.
-    InSubset(Box<InSubsetItem>),
-    /// An out-of-subset item: the typed error naming the construct that stopped it.
-    OutOfSubset(Error),
-}
+    /// Decode ordered Rust newtypes after cue-to-termination discovery.
+    ///
+    /// `bindings` supplies translator-issued declaration assignments and
+    /// lookup-only references for the caller's opaque Rust token projection.
+    /// The offset adapter below preserves absolute source bounds when each
+    /// typed position is evaluated.
+    pub fn decode<Bindings: DecodeNameBindings<VocabularyRoot> + ?Sized>(
+        &self,
+        source: &str,
+        bindings: &Bindings,
+    ) -> Result<WholeLogos, Error> {
+        let tree = DiscoveredCueTerminatedBlockTree::discover(
+            source,
+            self.vocabulary.rust_profile(),
+            self.vocabulary.rust_discovery(),
+        )?;
+        if tree.root_blocks().is_empty() {
+            return Err(Error::NoRustItems);
+        }
 
-/// An in-subset item that decoded to CoreLogos and re-encoded to text.
-#[derive(Debug)]
-pub struct InSubsetItem {
-    /// The decoded stringless CoreLogos value.
-    pub core: EncodedItem,
-    /// The item's prettyplease canonical text (its exact golden bytes).
-    pub canonical: RustSource,
-    /// The text produced by projecting `core` back to Rust.
-    pub reencoded: RustSource,
-}
+        let evaluator = StructuralEvaluator::<VocabularyRoot, RustNewtypeRule>::new(
+            self.vocabulary.structuretree(),
+        )?;
+        let mut items = Vec::with_capacity(tree.root_blocks().len());
+        let mut previous_end = 0;
 
-impl InSubsetItem {
-    /// Whether the round-trip reproduced the canonical golden text byte-for-byte.
-    pub fn is_byte_exact(&self) -> bool {
-        self.canonical == self.reencoded
+        for block in tree.root_blocks() {
+            let cue_start = block.cue().bound().start();
+            let prefix = checked_bound(source, previous_end, cue_start)?;
+            let visibility =
+                self.decode_visibility(source, prefix, bindings, &evaluator, "item visibility")?;
+            let newtype = self.decode_block(source, block, visibility, bindings, &evaluator)?;
+            items.push(WholeLogosItem::Newtype(newtype));
+            previous_end = block.source_bound().end();
+        }
+
+        let trailing = trim_bound(source, checked_bound(source, previous_end, source.len())?)?;
+        if !trailing.is_empty() {
+            return Err(Error::TrailingSource { bound: trailing });
+        }
+        Ok(WholeLogos::new(items))
     }
-}
 
-/// A survey of one golden module: every top-level item classified as in-subset
-/// (decoded and re-encoded) or out-of-subset (a loud typed reason), with the
-/// byte-exact round-trip evidence for the in-subset items.
-#[derive(Debug)]
-pub struct Coverage {
-    /// One outcome per top-level item, in source order.
-    pub outcomes: Vec<ItemOutcome>,
-}
-
-impl Coverage {
-    /// Survey a golden module: parse its top-level items, decode each atomically,
-    /// and for the in-subset items re-encode to the byte-exact canonical form. The
-    /// table is threaded so in-subset names commit into the continuous space; an
-    /// out-of-subset item leaves the table untouched.
-    pub fn survey(source: &RustSource, table: &mut NameTable) -> Result<Self, Error> {
-        let items = source.parse_items()?;
-        let mut outcomes = Vec::with_capacity(items.len());
-        for item in &items {
-            match item.decode_atomically(table) {
-                Ok(core) => {
-                    let reencoded = RustSource::project_item(&core, table as &dyn NameResolver)?;
-                    let canonical = RustSource::canonical_item(item);
-                    outcomes.push(ItemOutcome::InSubset(Box::new(InSubsetItem {
-                        core,
-                        canonical,
-                        reencoded,
-                    })));
+    /// Emit structural, attribute-free Rust in whole-Logos item order.
+    ///
+    /// The projection table contains caller-supplied rustc-safe tokens. This
+    /// method neither derives nor guesses an encoded-ID textual encoding.
+    pub fn emit(
+        &self,
+        logos: &WholeLogos,
+        projections: &RustNameProjectionTable,
+    ) -> Result<String, Error> {
+        let evaluator = StructuralEvaluator::<VocabularyRoot, RustNewtypeRule>::new(
+            self.vocabulary.structuretree(),
+        )?;
+        let struct_keyword = self.encode_literal::<StructKeywordPosition>(
+            self.vocabulary.ids().struct_keyword_type(),
+            self.vocabulary.ids().struct_keyword(),
+            &evaluator,
+        )?;
+        let mut rendered = String::new();
+        for item in logos.items() {
+            match item {
+                WholeLogosItem::Newtype(newtype) => {
+                    let item_visibility =
+                        self.encode_visibility(newtype.visibility(), &evaluator)?;
+                    let name = self.encode_declaration(newtype.name(), projections, &evaluator)?;
+                    let wrapped_visibility =
+                        self.encode_visibility(newtype.wrapped_visibility(), &evaluator)?;
+                    let wrapped =
+                        self.encode_reference(newtype.wrapped(), projections, &evaluator)?;
+                    rendered.push_str(&item_visibility);
+                    rendered.push_str(&struct_keyword);
+                    rendered.push(' ');
+                    rendered.push_str(&name);
+                    rendered.push('(');
+                    rendered.push_str(&wrapped_visibility);
+                    rendered.push_str(&wrapped);
+                    rendered.push_str(");\n");
                 }
-                Err(reason) => outcomes.push(ItemOutcome::OutOfSubset(reason)),
             }
         }
-        Ok(Self { outcomes })
+        Ok(rendered)
     }
 
-    /// The in-subset items, in source order.
-    pub fn in_subset(&self) -> impl Iterator<Item = &InSubsetItem> {
-        self.outcomes.iter().filter_map(|outcome| match outcome {
-            ItemOutcome::InSubset(item) => Some(item.as_ref()),
-            ItemOutcome::OutOfSubset(_) => None,
-        })
+    fn decode_block<Bindings: DecodeNameBindings<VocabularyRoot> + ?Sized>(
+        &self,
+        source: &str,
+        block: &DiscoveredCueTerminatedBlock,
+        item_visibility: WholeLogosVisibility,
+        bindings: &Bindings,
+        evaluator: &StructuralEvaluator<'_, VocabularyRoot, RustNewtypeRule>,
+    ) -> Result<WholeLogosNewtype, Error> {
+        if block.cue().evidence() != CueTerminatedBlockCueEvidence::CueTermination(STRUCT_CUE) {
+            return Err(Error::UnsupportedNewtypeShape {
+                bound: block.source_bound(),
+            });
+        }
+        self.decode_fixed_position(
+            source,
+            block.cue().bound(),
+            self.vocabulary.ids().struct_keyword_type(),
+            evaluator,
+        )?;
+
+        let [tuple] = block.children() else {
+            return Err(Error::UnsupportedNewtypeShape {
+                bound: block.source_bound(),
+            });
+        };
+        if tuple.cue().evidence() != CueTerminatedBlockCueEvidence::Boundary(PARENTHESIS)
+            || !tuple.children().is_empty()
+        {
+            return Err(Error::UnsupportedNewtypeShape {
+                bound: block.source_bound(),
+            });
+        }
+
+        let name_bound = trim_bound(
+            source,
+            checked_bound(
+                source,
+                block.content_bound().start(),
+                tuple.source_bound().start(),
+            )?,
+        )?;
+        let after_tuple = trim_bound(
+            source,
+            checked_bound(
+                source,
+                tuple.source_bound().end(),
+                block.content_bound().end(),
+            )?,
+        )?;
+        let field_bound = trim_bound(source, tuple.content_bound())?;
+        if name_bound.is_empty() || !after_tuple.is_empty() || field_bound.is_empty() {
+            return Err(Error::UnsupportedNewtypeShape {
+                bound: block.source_bound(),
+            });
+        }
+
+        let name = self.decode_declaration(source, name_bound, bindings, evaluator)?;
+        let (wrapped_visibility, reference_bound) =
+            self.field_visibility(source, field_bound, bindings, evaluator)?;
+        let wrapped = self.decode_reference(source, reference_bound, bindings, evaluator)?;
+        Ok(WholeLogosNewtype::new(
+            item_visibility,
+            name,
+            wrapped_visibility,
+            wrapped,
+        ))
     }
 
-    /// The out-of-subset reasons, in source order.
-    pub fn out_of_subset(&self) -> impl Iterator<Item = &Error> {
-        self.outcomes.iter().filter_map(|outcome| match outcome {
-            ItemOutcome::OutOfSubset(reason) => Some(reason),
-            ItemOutcome::InSubset(_) => None,
-        })
+    fn field_visibility<Bindings: DecodeNameBindings<VocabularyRoot> + ?Sized>(
+        &self,
+        source: &str,
+        field: SourceBound,
+        bindings: &Bindings,
+        evaluator: &StructuralEvaluator<'_, VocabularyRoot, RustNewtypeRule>,
+    ) -> Result<(WholeLogosVisibility, SourceBound), Error> {
+        let public = self
+            .vocabulary
+            .resolve(self.vocabulary.ids().public_keyword())
+            .expect("the fixed public word was validated at seal")
+            .as_str();
+        let text = &source[field.start()..field.end()];
+        let public_end = field.start() + public.len();
+        let has_public_prefix = text.starts_with(public)
+            && text[public.len()..]
+                .chars()
+                .next()
+                .is_some_and(char::is_whitespace);
+        if !has_public_prefix {
+            return Ok((WholeLogosVisibility::Private, field));
+        }
+
+        let keyword_bound = checked_bound(source, field.start(), public_end)?;
+        self.decode_fixed_position(
+            source,
+            keyword_bound,
+            self.vocabulary.ids().public_keyword_type(),
+            evaluator,
+        )?;
+        let reference = trim_bound(source, checked_bound(source, public_end, field.end())?)?;
+        if reference.is_empty() {
+            return Err(Error::UnsupportedNewtypeShape { bound: field });
+        }
+        // The bindings remain lookup-only here; the public word was decoded
+        // against the immutable Rust table, while the following token is
+        // resolved through the caller's Universal projection.
+        let _ = bindings;
+        Ok((WholeLogosVisibility::Public, reference))
     }
 
-    /// How many top-level items decoded into subset.
-    pub fn in_subset_count(&self) -> usize {
-        self.in_subset().count()
+    fn decode_visibility<Bindings: DecodeNameBindings<VocabularyRoot> + ?Sized>(
+        &self,
+        source: &str,
+        bound: SourceBound,
+        _bindings: &Bindings,
+        evaluator: &StructuralEvaluator<'_, VocabularyRoot, RustNewtypeRule>,
+        _position: &'static str,
+    ) -> Result<WholeLogosVisibility, Error> {
+        let bound = trim_bound(source, bound)?;
+        if bound.is_empty() {
+            return Ok(WholeLogosVisibility::Private);
+        }
+        self.decode_fixed_position(
+            source,
+            bound,
+            self.vocabulary.ids().public_keyword_type(),
+            evaluator,
+        )?;
+        Ok(WholeLogosVisibility::Public)
     }
 
-    /// How many top-level items were the out-of-subset frontier.
-    pub fn out_of_subset_count(&self) -> usize {
-        self.out_of_subset().count()
+    fn decode_fixed_position(
+        &self,
+        source: &str,
+        bound: SourceBound,
+        expected: &structural_codec::EncodedTypeId<VocabularyRoot>,
+        evaluator: &StructuralEvaluator<'_, VocabularyRoot, RustNewtypeRule>,
+    ) -> Result<(), Error> {
+        let slice = &source[bound.start()..bound.end()];
+        let fixed = FixedBindings(&self.vocabulary);
+        let decoded = evaluator
+            .decode_text(expected, slice, &fixed)
+            .map_err(|error| Error::Decode(offset_decode_error(error, source, bound.start())))?;
+        if decoded.constructor() != &constructor_for(expected) {
+            return Err(Error::TypedPositionMismatch {
+                position: "fixed Rust vocabulary",
+            });
+        }
+        Ok(())
     }
 
-    /// Whether every in-subset item round-tripped byte-exact — the corpus gate.
-    pub fn every_in_subset_item_is_byte_exact(&self) -> bool {
-        self.in_subset().all(InSubsetItem::is_byte_exact)
+    fn decode_declaration<Bindings: DecodeNameBindings<VocabularyRoot> + ?Sized>(
+        &self,
+        source: &str,
+        bound: SourceBound,
+        bindings: &Bindings,
+        evaluator: &StructuralEvaluator<'_, VocabularyRoot, RustNewtypeRule>,
+    ) -> Result<VocabularyEncodedId, Error> {
+        let offset = OffsetBindings {
+            inner: bindings,
+            source,
+            offset: bound.start(),
+        };
+        let value = evaluator
+            .decode_text(
+                self.vocabulary.ids().declaration_name_type(),
+                &source[bound.start()..bound.end()],
+                &offset,
+            )
+            .map_err(|error| Error::Decode(offset_decode_error(error, source, bound.start())))?;
+        match value.field::<DeclarationNamePosition>() {
+            Some(FieldValue::Declaration(assignment)) => {
+                validate_universal("newtype name", assignment.encoded_id())?;
+                Ok(assignment.encoded_id().clone())
+            }
+            _ => Err(Error::TypedPositionMismatch {
+                position: "declaration name",
+            }),
+        }
+    }
+
+    fn decode_reference<Bindings: DecodeNameBindings<VocabularyRoot> + ?Sized>(
+        &self,
+        source: &str,
+        bound: SourceBound,
+        bindings: &Bindings,
+        evaluator: &StructuralEvaluator<'_, VocabularyRoot, RustNewtypeRule>,
+    ) -> Result<VocabularyEncodedId, Error> {
+        let offset = OffsetBindings {
+            inner: bindings,
+            source,
+            offset: bound.start(),
+        };
+        let value = evaluator
+            .decode_text(
+                self.vocabulary.ids().referenced_type_type(),
+                &source[bound.start()..bound.end()],
+                &offset,
+            )
+            .map_err(|error| Error::Decode(offset_decode_error(error, source, bound.start())))?;
+        match value.field::<ReferencedTypePosition>() {
+            Some(FieldValue::Reference(reference)) => {
+                validate_universal("wrapped type", reference.encoded_id())?;
+                Ok(reference.encoded_id().clone())
+            }
+            _ => Err(Error::TypedPositionMismatch {
+                position: "referenced type",
+            }),
+        }
+    }
+
+    fn encode_visibility(
+        &self,
+        visibility: &WholeLogosVisibility,
+        evaluator: &StructuralEvaluator<'_, VocabularyRoot, RustNewtypeRule>,
+    ) -> Result<String, Error> {
+        match visibility {
+            WholeLogosVisibility::Private => Ok(String::new()),
+            WholeLogosVisibility::Public => {
+                let word = self.encode_literal::<PublicKeywordPosition>(
+                    self.vocabulary.ids().public_keyword_type(),
+                    self.vocabulary.ids().public_keyword(),
+                    evaluator,
+                )?;
+                Ok(format!("{word} "))
+            }
+        }
+    }
+
+    fn encode_literal<Role: FieldRole>(
+        &self,
+        expected: &structural_codec::EncodedTypeId<VocabularyRoot>,
+        encoded_id: &VocabularyEncodedId,
+        evaluator: &StructuralEvaluator<'_, VocabularyRoot, RustNewtypeRule>,
+    ) -> Result<String, Error> {
+        let mut record = StructuralValue::record(constructor_for(expected));
+        record.insert::<Role>(FieldValue::Literal(encoded_id.clone()))?;
+        Ok(evaluator.encode_text(expected, &record.finish(), &self.vocabulary)?)
+    }
+
+    fn encode_declaration(
+        &self,
+        encoded_id: &VocabularyEncodedId,
+        projections: &RustNameProjectionTable,
+        evaluator: &StructuralEvaluator<'_, VocabularyRoot, RustNewtypeRule>,
+    ) -> Result<String, Error> {
+        validate_universal("newtype name", encoded_id)?;
+        if projections.projected(encoded_id).is_none() {
+            return Err(Error::MissingProjection {
+                encoded_id: encoded_id.clone(),
+            });
+        }
+        let expected = self.vocabulary.ids().declaration_name_type();
+        let mut record = StructuralValue::record(constructor_for(expected));
+        record.insert::<DeclarationNamePosition>(FieldValue::Declaration(
+            DeclarationAssignment::new(encoded_id.clone()),
+        ))?;
+        Ok(evaluator.encode_text(expected, &record.finish(), projections)?)
+    }
+
+    fn encode_reference(
+        &self,
+        encoded_id: &VocabularyEncodedId,
+        projections: &RustNameProjectionTable,
+        evaluator: &StructuralEvaluator<'_, VocabularyRoot, RustNewtypeRule>,
+    ) -> Result<String, Error> {
+        validate_universal("wrapped type", encoded_id)?;
+        if projections.projected(encoded_id).is_none() {
+            return Err(Error::MissingProjection {
+                encoded_id: encoded_id.clone(),
+            });
+        }
+        let expected = self.vocabulary.ids().referenced_type_type();
+        let mut record = StructuralValue::record(constructor_for(expected));
+        record.insert::<ReferencedTypePosition>(FieldValue::Reference(ResolvedReference::new(
+            encoded_id.clone(),
+        )))?;
+        Ok(evaluator.encode_text(expected, &record.finish(), projections)?)
+    }
+}
+
+fn validate_universal(
+    position: &'static str,
+    encoded_id: &VocabularyEncodedId,
+) -> Result<(), Error> {
+    if encoded_id.root_variant() != &VocabularyRoot::Universal {
+        return Err(Error::NonUniversalIdentity {
+            position,
+            found: *encoded_id.root_variant(),
+        });
+    }
+    Ok(())
+}
+
+fn checked_bound(source: &str, start: usize, end: usize) -> Result<SourceBound, Error> {
+    SourceBound::checked(source, start, end)
+        .map_err(BlockDiscoveryError::from)
+        .map_err(Error::from)
+}
+
+fn trim_bound(source: &str, bound: SourceBound) -> Result<SourceBound, Error> {
+    let text = &source[bound.start()..bound.end()];
+    let without_leading = text.trim_start();
+    let leading = text.len() - without_leading.len();
+    let trimmed = without_leading.trim_end();
+    let start = bound.start() + leading;
+    checked_bound(source, start, start + trimmed.len())
+}
+
+fn offset_decode_error(
+    error: DecodeError<VocabularyRoot>,
+    source: &str,
+    offset: usize,
+) -> DecodeError<VocabularyRoot> {
+    let offset_bound = |bound: SourceBound| {
+        SourceBound::checked(source, offset + bound.start(), offset + bound.end())
+            .expect("a typed-position failure bound stays inside its original source")
+    };
+    match error {
+        DecodeError::MissingDeclarationAssignment { bound } => {
+            DecodeError::MissingDeclarationAssignment {
+                bound: offset_bound(bound),
+            }
+        }
+        DecodeError::UnresolvedReference { bound } => DecodeError::UnresolvedReference {
+            bound: offset_bound(bound),
+        },
+        DecodeError::NameBindingMismatch { bound } => DecodeError::NameBindingMismatch {
+            bound: offset_bound(bound),
+        },
+        DecodeError::ProductPositionMismatch {
+            position,
+            role,
+            bound,
+        } => DecodeError::ProductPositionMismatch {
+            position,
+            role,
+            bound: offset_bound(bound),
+        },
+        other => other,
+    }
+}
+
+struct FixedBindings<'names>(&'names RustNewtypeVocabulary);
+
+impl EncodedNameResolver<VocabularyRoot> for FixedBindings<'_> {
+    fn resolve(&self, encoded_id: &VocabularyEncodedId) -> Option<&Name> {
+        self.0.resolve(encoded_id)
+    }
+}
+
+impl DecodeNameBindings<VocabularyRoot> for FixedBindings<'_> {
+    fn declaration_assignment(
+        &self,
+        _occurrence: NameOccurrence<'_>,
+    ) -> Option<DeclarationAssignment<VocabularyRoot>> {
+        None
+    }
+
+    fn reference_resolution(
+        &self,
+        _occurrence: NameOccurrence<'_>,
+    ) -> Option<ResolvedReference<VocabularyRoot>> {
+        None
+    }
+}
+
+struct OffsetBindings<'bindings, Bindings: ?Sized> {
+    inner: &'bindings Bindings,
+    source: &'bindings str,
+    offset: usize,
+}
+
+impl<Bindings: EncodedNameResolver<VocabularyRoot> + ?Sized> EncodedNameResolver<VocabularyRoot>
+    for OffsetBindings<'_, Bindings>
+{
+    fn resolve(&self, encoded_id: &VocabularyEncodedId) -> Option<&Name> {
+        self.inner.resolve(encoded_id)
+    }
+}
+
+impl<Bindings: DecodeNameBindings<VocabularyRoot> + ?Sized> DecodeNameBindings<VocabularyRoot>
+    for OffsetBindings<'_, Bindings>
+{
+    fn declaration_assignment(
+        &self,
+        occurrence: NameOccurrence<'_>,
+    ) -> Option<DeclarationAssignment<VocabularyRoot>> {
+        let bound = SourceBound::checked(
+            self.source,
+            self.offset + occurrence.bound().start(),
+            self.offset + occurrence.bound().end(),
+        )
+        .expect("a relative bound inside the sliced source stays inside the original source");
+        self.inner
+            .declaration_assignment(NameOccurrence::new(occurrence.spelling(), bound))
+    }
+
+    fn reference_resolution(
+        &self,
+        occurrence: NameOccurrence<'_>,
+    ) -> Option<ResolvedReference<VocabularyRoot>> {
+        let bound = SourceBound::checked(
+            self.source,
+            self.offset + occurrence.bound().start(),
+            self.offset + occurrence.bound().end(),
+        )
+        .expect("a relative bound inside the sliced source stays inside the original source");
+        self.inner
+            .reference_resolution(NameOccurrence::new(occurrence.spelling(), bound))
     }
 }
