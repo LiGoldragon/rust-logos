@@ -44,12 +44,38 @@ The structuretree and fixed words are addressed through immutable Rust-root
 encoded IDs supplied by the caller. The component validates their root and
 exact spelling while sealing, then retains only a read-only fixed-word view.
 
-Universal names are not emitted by resolving their human spelling. The caller
-must associate each complete encoded-ID chain with an opaque
-`FixtureRustEmittedIdentifier`. `FixtureRustNameProjectionTable` validates the
-token and rejects mappings in which one identity has two tokens or two
-identities share one token. These caller-supplied projections are explicitly
-fixture-only: no algorithm derives a production token from the chain.
+Universal names are not emitted by resolving their human spelling.
+Production emission derives the token algorithmically: `RustEncodedIdCodec`
+computes it directly from the complete encoded-ID chain (see "Production
+naming" below). A separate fixture-only path still exists for the earlier
+slice-one witness: the caller associates each complete encoded-ID chain with
+an opaque `FixtureRustEmittedIdentifier`, and `FixtureRustNameProjectionTable`
+validates the token and rejects mappings in which one identity has two
+tokens or two identities share one token. That caller-supplied projection
+path is explicitly fixture-only and is not how production names are derived.
+
+## Production naming
+
+`RustLogos::emit` is the production entry point. It resolves every Universal
+identity to a name computed by `RustEncodedIdCodec::encode`: the payload is
+the format version byte, the explicit production root tag byte, then every
+table-local `u16` in the chain in big-endian order, rendered as Base58BTC
+with a leading `z` multibase discriminator. The encoding is injective, has no
+semantic depth cap, and an operational rename (a spelling-only edit in the
+owning nametable) never changes it, because it is computed from the
+identity's encoded-ID chain, not from any resolved spelling. Rust-root
+identities keep their immutable Rust spelling, resolved through the caller's
+allocated view (`EncodedNameResolver`), rather than being encoded by this
+codec.
+
+Per DRR entry 7, emitted Rust was ruled to use "a textual version of [the
+encoded identity] - some kind of textual binary encoding which is friendly to
+rustc". Per DRR entry 17, an earlier fixed-width-decimal proposal was
+rejected by the psyche, and the exact codec was explicitly left as
+implementation matter rather than a psyche ruling: "encode the complete
+identity in a compact, readable textual-binary form accepted by rustc" is the
+ruled direction; Base58BTC is this crate's implementation choice satisfying
+it, not itself a separate ruling.
 
 ## Emission
 
