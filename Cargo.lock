@@ -312,16 +312,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "raw-discovery"
-version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/raw-discovery.git?rev=2ac78f621980fa02daa3b31e90cc5c73570eed6e#2ac78f621980fa02daa3b31e90cc5c73570eed6e"
-dependencies = [
- "content-identity 0.3.0",
- "rkyv",
- "thiserror",
-]
-
-[[package]]
 name = "rend"
 version = "0.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -406,18 +396,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
-name = "structural-codec"
-version = "0.6.0"
-source = "git+https://github.com/LiGoldragon/structural-codec.git?rev=23497c43f81b619158e5cfbd83a012eb63c4186f#23497c43f81b619158e5cfbd83a012eb63c4186f"
-dependencies = [
- "content-identity 0.3.0",
- "name-table",
- "raw-discovery",
- "rkyv",
- "thiserror",
-]
-
-[[package]]
 name = "syn"
 version = "2.0.119"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -430,7 +408,7 @@ dependencies = [
 
 [[package]]
 name = "textual-rust"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "content-identity 0.3.0",
  "core-logos",
@@ -438,7 +416,6 @@ dependencies = [
  "prettyplease",
  "proc-macro2",
  "quote",
- "structural-codec",
  "syn",
  "thiserror",
 ]
