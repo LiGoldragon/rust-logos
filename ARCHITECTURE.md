@@ -7,8 +7,9 @@ text exists only while this component discovers or emits the interim
 programming interface.
 
 There is no Rust Capsule here. The input and output content is
-`core_logos::WholeLogos`, whose complete Universal encoded-ID chains are
-preserved unchanged.
+`core_logos::WholeLogos`. Declarations carry complete Universal encoded-ID
+chains. References may instead carry complete immutable Rust-vocabulary
+chains after typed Nomos transformation.
 
 ## Two passes
 
@@ -30,6 +31,8 @@ Each record implements `StructureRecord` and is consumed by the one shared
 `StructuralEvaluator`. `OrderedSequence` links the mixed word and boundary
 positions of one complete Rust record. Declaration positions require
 translator-issued assignments. Reference positions use lookup-only resolution.
+Declaration reification remains Universal-root strict; reference reification
+preserves either root in the closed production set.
 Typed alternatives are sealed only when conservative disjointness proves them;
 vector order never selects meaning.
 

@@ -339,6 +339,31 @@ fn production_allocations(
     names
 }
 
+fn production_bindings(
+    source: &str,
+    fixture: &Fixture,
+    unsigned_64: &VocabularyEncodedId,
+    vector: &VocabularyEncodedId,
+) -> Bindings {
+    let mut bindings = Bindings::default();
+    for identity in [
+        fixture.newtype.clone(),
+        fixture.enumeration.clone(),
+        fixture.unit.clone(),
+        fixture.payload.clone(),
+    ] {
+        let token = RustEncodedIdCodec::encode(&identity);
+        bindings.declaration(source, token.as_str(), 0, identity);
+    }
+    for occurrence in 0..2 {
+        bindings.reference(source, "Vec", occurrence, vector.clone());
+    }
+    for occurrence in 0..3 {
+        bindings.reference(source, "u64", occurrence, unsigned_64.clone());
+    }
+    bindings
+}
+
 fn token_for_payload(payload: &[u8]) -> String {
     format!(
         "{BASE58BTC_MULTIBASE_PREFIX}{}",
@@ -508,6 +533,16 @@ fn production_emission_uses_identity_and_immutable_rust_vocabulary() {
     ] {
         assert!(!emitted.contains(spelling));
     }
+    assert_eq!(
+        fixture
+            .codec
+            .decode_fixture(
+                &emitted,
+                &production_bindings(&emitted, &fixture, &unsigned_64, &vector),
+            )
+            .expect("production Rust structurally decodes"),
+        logos
+    );
     assert_eq!(std::mem::size_of::<RustEncodedIdCodec>(), 0);
 }
 

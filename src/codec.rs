@@ -687,10 +687,7 @@ fn reference_id<Role: FieldRole>(
     position: &'static str,
 ) -> Result<VocabularyEncodedId, Error> {
     match value.field::<Role>() {
-        Some(FieldValue::Reference(reference)) => {
-            validate_universal(position, reference.encoded_id())?;
-            Ok(reference.encoded_id().clone())
-        }
+        Some(FieldValue::Reference(reference)) => Ok(reference.encoded_id().clone()),
         _ => Err(Error::TypedPositionMismatch { position }),
     }
 }
