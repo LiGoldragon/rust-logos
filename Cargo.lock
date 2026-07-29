@@ -116,8 +116,8 @@ dependencies = [
 
 [[package]]
 name = "core-logos"
-version = "0.16.0"
-source = "git+https://github.com/LiGoldragon/core-logos.git?rev=13e600ec74532f3037850f5d9985c05905456a20#13e600ec74532f3037850f5d9985c05905456a20"
+version = "0.17.0"
+source = "git+https://github.com/LiGoldragon/core-logos.git?rev=918869938402a099c3d8cd5d599b2488d0317c15#918869938402a099c3d8cd5d599b2488d0317c15"
 dependencies = [
  "content-identity 0.3.0",
  "content-identity 0.4.0",
@@ -385,7 +385,7 @@ dependencies = [
 
 [[package]]
 name = "rust-logos"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "bs58",
  "core-logos",
@@ -437,9 +437,10 @@ dependencies = [
 
 [[package]]
 name = "signal-sema-translator"
-version = "0.3.0"
-source = "git+https://github.com/LiGoldragon/signal-sema-translator.git?rev=dd8e7b5656833f640e49c099ab3be6f09881f9c5#dd8e7b5656833f640e49c099ab3be6f09881f9c5"
+version = "0.4.0"
+source = "git+https://github.com/LiGoldragon/signal-sema-translator.git?rev=51c02c4a7b6f67d9dad095f11986085d7d65785b#51c02c4a7b6f67d9dad095f11986085d7d65785b"
 dependencies = [
+ "blake3",
  "name-table 0.3.0",
  "protos",
  "rkyv",
@@ -461,8 +462,8 @@ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
 name = "structural-codec"
-version = "0.17.0"
-source = "git+https://github.com/LiGoldragon/structural-codec.git?rev=6769015f5a040dd158f0a76b3962f31ee8e4f16e#6769015f5a040dd158f0a76b3962f31ee8e4f16e"
+version = "0.18.0"
+source = "git+https://github.com/LiGoldragon/structural-codec.git?rev=1485c1f8edcb9c988492c6eb0378c10a3599d665#1485c1f8edcb9c988492c6eb0378c10a3599d665"
 dependencies = [
  "content-identity 0.3.0",
  "name-table 0.3.0",
