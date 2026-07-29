@@ -18,11 +18,11 @@ name = "slice_one"
 path = "tests/slice_one.rs"
 
 [dependencies]
-core-logos             = { git = "https://github.com/LiGoldragon/core-logos.git", rev = "a7dd1e2b8d0c55d26e96c5b1b7154a534cf03e55" }
-name-table             = { git = "https://github.com/LiGoldragon/name-table.git", rev = "1f558eac44bd03034e51ad98e3a65ec16d8b8411" }
+core-logos             = { git = "https://github.com/LiGoldragon/core-logos.git", rev = "28260415849a250e5e310c3563eda99ad1ff4232" }
+name-table             = { git = "https://github.com/LiGoldragon/name-table.git", rev = "50cb4bb53ae2dc4f2516f6912be328ef98ae49f8" }
 raw-discovery          = { git = "https://github.com/LiGoldragon/raw-discovery.git", rev = "d979778aa9d79199785f7b683f1029534aea3604" }
-signal-sema-translator = { git = "https://github.com/LiGoldragon/signal-sema-translator.git", rev = "8ff7d0db033c756a0cd7999e72e564ca1c32b4aa" }
-structural-codec       = { git = "https://github.com/LiGoldragon/structural-codec.git", rev = "e47bec61c81fba80deb44c5920f6a15420bbf962" }
+signal-sema-translator = { git = "https://github.com/LiGoldragon/signal-sema-translator.git", rev = "8c504ba7aa8dbdc5edf7daadbb862bbdaa5613be" }
+structural-codec       = { git = "https://github.com/LiGoldragon/structural-codec.git", rev = "3cecb832e4209698038e64c537b66af8afcb66b2" }
 rkyv                   = { version = "0.8", default-features = false, features = ["std", "bytecheck", "little_endian", "pointer_width_32", "unaligned"] }
 thiserror              = "2"
 
