@@ -12,11 +12,11 @@ use structural_codec::EncodedNameResolver;
 
 use crate::{Error, RustIdentifierRefusal};
 
-/// A rustc-safe opaque token in the conservative ASCII identifier subset.
+/// A fixture-only rustc-safe opaque token in the conservative ASCII subset.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub struct RustEmittedIdentifier(Name);
+pub struct FixtureRustEmittedIdentifier(Name);
 
-impl RustEmittedIdentifier {
+impl FixtureRustEmittedIdentifier {
     /// Validate one caller-supplied token.
     pub fn try_new(token: impl Into<String>) -> Result<Self, Error> {
         let token = token.into();
@@ -34,17 +34,17 @@ impl RustEmittedIdentifier {
     }
 }
 
-/// A checked association between complete Universal encoded-ID chains and
+/// A fixture-only association between complete Universal encoded-ID chains and
 /// opaque Rust tokens.
 #[derive(Clone, Debug, Default)]
-pub struct RustNameProjectionTable {
-    entries: BTreeMap<VocabularyEncodedId, RustEmittedIdentifier>,
+pub struct FixtureRustNameProjectionTable {
+    entries: BTreeMap<VocabularyEncodedId, FixtureRustEmittedIdentifier>,
 }
 
-impl RustNameProjectionTable {
+impl FixtureRustNameProjectionTable {
     /// Build a projection table without deriving a token from any chain.
     pub fn try_from_entries(
-        entries: impl IntoIterator<Item = (VocabularyEncodedId, RustEmittedIdentifier)>,
+        entries: impl IntoIterator<Item = (VocabularyEncodedId, FixtureRustEmittedIdentifier)>,
     ) -> Result<Self, Error> {
         let mut projected = BTreeMap::new();
         let mut tokens = BTreeSet::new();
@@ -69,15 +69,18 @@ impl RustNameProjectionTable {
     }
 
     /// Read the opaque token for one complete encoded-ID chain.
-    pub fn projected(&self, encoded_id: &VocabularyEncodedId) -> Option<&RustEmittedIdentifier> {
+    pub fn projected(
+        &self,
+        encoded_id: &VocabularyEncodedId,
+    ) -> Option<&FixtureRustEmittedIdentifier> {
         self.entries.get(encoded_id)
     }
 }
 
-impl EncodedNameResolver<VocabularyRoot> for RustNameProjectionTable {
+impl EncodedNameResolver<VocabularyRoot> for FixtureRustNameProjectionTable {
     fn resolve(&self, encoded_id: &VocabularyEncodedId) -> Option<&Name> {
         self.projected(encoded_id)
-            .map(RustEmittedIdentifier::as_name)
+            .map(FixtureRustEmittedIdentifier::as_name)
     }
 }
 

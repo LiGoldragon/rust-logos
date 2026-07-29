@@ -91,8 +91,8 @@ pub enum Error {
         encoded_id: VocabularyEncodedId,
     },
 
-    /// No cue-terminated Rust struct item was present.
-    #[error("Rust source contains no struct item")]
+    /// No cue-terminated fixture item was present.
+    #[error("Rust source contains no supported fixture item")]
     NoRustItems,
 
     /// Source outside one discovered newtype block was not solely its typed
@@ -103,12 +103,16 @@ pub enum Error {
         bound: SourceBound,
     },
 
-    /// A discovered struct did not have the one tuple field shape.
-    #[error("struct block at {bound:?} is not an attribute-free one-field tuple newtype")]
-    UnsupportedNewtypeShape {
+    /// A discovered item did not fit its typed fixture record.
+    #[error("Rust item at {bound:?} does not fit the bounded structural fixture")]
+    UnsupportedItemShape {
         /// The refused item range.
         bound: SourceBound,
     },
+
+    /// Rust enum tuple fields do not admit a visibility modifier.
+    #[error("enumeration tuple fields must have private visibility")]
+    UnsupportedVariantFieldVisibility,
 
     /// A sealed typed record returned a value under a different role or value
     /// kind than its record declares.
@@ -119,7 +123,7 @@ pub enum Error {
     },
 
     /// Source remained after the final discovered item.
-    #[error("unsupported Rust source after the final newtype at {bound:?}")]
+    #[error("unsupported Rust source after the final fixture item at {bound:?}")]
     TrailingSource {
         /// The refused source range.
         bound: SourceBound,

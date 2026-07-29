@@ -1,14 +1,13 @@
-//! The single Rust-specific evaluator object permitted for the first MVP.
-//!
-//! It owns only orchestration that the shared evaluator does not yet express:
-//! cue-to-termination item bounds, Rust adjacency, and fixed punctuation.
-//! Every semantic token is decoded and encoded by `StructuralEvaluator`
-//! against a real typed position record.
+//! Rust TextualForm orchestration over complete typed fixture records.
 
-use core_logos::{WholeLogos, WholeLogosItem, WholeLogosNewtype, WholeLogosVisibility};
+use core_logos::{
+    WholeLogos, WholeLogosEnumeration, WholeLogosItem, WholeLogosNewtype, WholeLogosTupleFields,
+    WholeLogosTypeApplication, WholeLogosTypeReference, WholeLogosVariant,
+    WholeLogosVariantPayload, WholeLogosVisibility,
+};
 use name_table::Name;
 use raw_discovery::{
-    BlockDiscoveryError, BlockTree, CueTerminatedBlockCueEvidence, DiscoveredCueTerminatedBlock,
+    BlockDiscoveryError, BlockTree, CueTerminatedBlockCueEvidence,
     DiscoveredCueTerminatedBlockTree, SourceBound,
 };
 use signal_sema_translator::{VocabularyEncodedId, VocabularyRoot};
@@ -17,35 +16,33 @@ use structural_codec::{
     FieldValue, NameOccurrence, ResolvedReference, StructuralEvaluator, StructuralValue,
 };
 
-use crate::vocabulary::{
-    DeclarationNamePosition, PARENTHESIS, PublicKeywordPosition, ReferencedTypePosition,
-    RustNewtypeRule, RustNewtypeVocabulary, STRUCT_CUE, StructKeywordPosition, constructor_for,
+use crate::fixture_vocabulary::{
+    ApplicationBody, ApplicationHead, ApplicationPayload, ApplicationRoot, ENUM_CUE,
+    FixtureRustRule, FixtureRustVocabulary, ItemBody, ItemElements, ItemKeyword, ItemName,
+    ItemRoot, ItemTerminator, ItemVisibility, ReferencedTypePosition, STRUCT_CUE, TupleFieldRoot,
+    TupleFieldTerminator, TupleFieldType, TupleFieldVisibility, VariantBody, VariantFields,
+    VariantName, VariantRoot, VariantTerminator, constructor_for, ordered_sequence_value,
 };
-use crate::{Error, RustNameProjectionTable};
+use crate::{Error, FixtureRustNameProjectionTable};
 
-/// Bidirectional structural Rust view for the attribute-free newtype slice.
+/// Bidirectional Rust view for the bounded fixture breadth.
 pub struct RustLogos {
-    vocabulary: RustNewtypeVocabulary,
+    vocabulary: FixtureRustVocabulary,
 }
 
 impl RustLogos {
-    /// Seat the already-sealed typed Rust vocabulary.
-    pub fn new(vocabulary: RustNewtypeVocabulary) -> Self {
+    /// Seat the already-sealed typed Rust fixture vocabulary.
+    pub fn new(vocabulary: FixtureRustVocabulary) -> Self {
         Self { vocabulary }
     }
 
-    /// The exact structural rule data used for all semantic tokens.
-    pub fn vocabulary(&self) -> &RustNewtypeVocabulary {
+    /// Exact typed structural data used for fixture evaluation.
+    pub fn vocabulary(&self) -> &FixtureRustVocabulary {
         &self.vocabulary
     }
 
-    /// Decode ordered Rust newtypes after cue-to-termination discovery.
-    ///
-    /// `bindings` supplies translator-issued declaration assignments and
-    /// lookup-only references for the caller's opaque Rust token projection.
-    /// The offset adapter below preserves absolute source bounds when each
-    /// typed position is evaluated.
-    pub fn decode<Bindings: DecodeNameBindings<VocabularyRoot> + ?Sized>(
+    /// Decode complete fixture items after cue-to-termination discovery.
+    pub fn decode_fixture<Bindings: DecodeNameBindings<VocabularyRoot> + ?Sized>(
         &self,
         source: &str,
         bindings: &Bindings,
@@ -58,23 +55,54 @@ impl RustLogos {
         if tree.root_blocks().is_empty() {
             return Err(Error::NoRustItems);
         }
-
-        let evaluator = StructuralEvaluator::<VocabularyRoot, RustNewtypeRule>::new(
+        let evaluator = StructuralEvaluator::<VocabularyRoot, FixtureRustRule>::new(
             self.vocabulary.structuretree(),
         )?;
         let mut items = Vec::with_capacity(tree.root_blocks().len());
         let mut previous_end = 0;
-
         for block in tree.root_blocks() {
-            let cue_start = block.cue().bound().start();
-            let prefix = checked_bound(source, previous_end, cue_start)?;
-            let visibility =
-                self.decode_visibility(source, prefix, bindings, &evaluator, "item visibility")?;
-            let newtype = self.decode_block(source, block, visibility, bindings, &evaluator)?;
-            items.push(WholeLogosItem::Newtype(newtype));
+            let start = trim_bound(
+                source,
+                checked_bound(source, previous_end, block.cue().bound().start())?,
+            )?
+            .start();
+            let bound = checked_bound(source, start, block.source_bound().end())?;
+            let expected = match block.cue().evidence() {
+                CueTerminatedBlockCueEvidence::CueTermination(STRUCT_CUE) => {
+                    self.vocabulary.ids().newtype_item()
+                }
+                CueTerminatedBlockCueEvidence::CueTermination(ENUM_CUE) => {
+                    self.vocabulary.ids().enumeration_item()
+                }
+                CueTerminatedBlockCueEvidence::CueTermination(_) => {
+                    return Err(Error::UnsupportedItemShape {
+                        bound: block.source_bound(),
+                    });
+                }
+                CueTerminatedBlockCueEvidence::Boundary(_) => {
+                    return Err(Error::UnsupportedItemShape {
+                        bound: block.source_bound(),
+                    });
+                }
+            };
+            let offset = OffsetBindings {
+                vocabulary: &self.vocabulary,
+                inner: bindings,
+                source,
+                offset: bound.start(),
+            };
+            let value = evaluator
+                .decode_text(expected, &source[bound.start()..bound.end()], &offset)
+                .map_err(|error| {
+                    Error::Decode(offset_decode_error(error, source, bound.start()))
+                })?;
+            if expected == self.vocabulary.ids().newtype_item() {
+                items.push(WholeLogosItem::Newtype(self.reify_newtype(&value)?));
+            } else {
+                items.push(WholeLogosItem::Enumeration(self.reify_enumeration(&value)?));
+            }
             previous_end = block.source_bound().end();
         }
-
         let trailing = trim_bound(source, checked_bound(source, previous_end, source.len())?)?;
         if !trailing.is_empty() {
             return Err(Error::TrailingSource { bound: trailing });
@@ -82,331 +110,412 @@ impl RustLogos {
         Ok(WholeLogos::new(items))
     }
 
-    /// Emit structural, attribute-free Rust in whole-Logos item order.
+    /// Emit each fixture item through its complete typed structural record.
     ///
-    /// The projection table contains caller-supplied rustc-safe tokens. This
-    /// method neither derives nor guesses an encoded-ID textual encoding.
-    pub fn emit(
+    /// Caller projections are test data only. No chain spelling is derived.
+    pub fn emit_fixture(
         &self,
         logos: &WholeLogos,
-        projections: &RustNameProjectionTable,
+        projections: &FixtureRustNameProjectionTable,
     ) -> Result<String, Error> {
-        let evaluator = StructuralEvaluator::<VocabularyRoot, RustNewtypeRule>::new(
+        self.validate_projections(logos, projections)?;
+        let evaluator = StructuralEvaluator::<VocabularyRoot, FixtureRustRule>::new(
             self.vocabulary.structuretree(),
         )?;
-        let struct_keyword = self.encode_literal::<StructKeywordPosition>(
-            self.vocabulary.ids().struct_keyword_type(),
-            self.vocabulary.ids().struct_keyword(),
-            &evaluator,
-        )?;
-        let separator = self.vocabulary.item_separator();
-        let (tuple_opening, tuple_closing) = self.vocabulary.tuple_delimiters();
-        let termination = self.vocabulary.item_termination();
-        let mut rendered = String::new();
+        let resolver = FixtureResolver {
+            vocabulary: &self.vocabulary,
+            projections,
+        };
+        let mut items = Vec::with_capacity(logos.items().len());
+        for item in logos.items() {
+            let (expected, value) = match item {
+                WholeLogosItem::Newtype(newtype) => (
+                    self.vocabulary.ids().newtype_item(),
+                    self.reflect_newtype(newtype)?,
+                ),
+                WholeLogosItem::Enumeration(enumeration) => (
+                    self.vocabulary.ids().enumeration_item(),
+                    self.reflect_enumeration(enumeration)?,
+                ),
+            };
+            items.push(evaluator.encode_text(expected, &value, &resolver)?);
+        }
+        Ok(RenderedFixtureDocument(items).to_string())
+    }
+
+    fn validate_projections(
+        &self,
+        logos: &WholeLogos,
+        projections: &FixtureRustNameProjectionTable,
+    ) -> Result<(), Error> {
         for item in logos.items() {
             match item {
                 WholeLogosItem::Newtype(newtype) => {
-                    let item_visibility =
-                        self.encode_visibility(newtype.visibility(), &evaluator)?;
-                    let name = self.encode_declaration(newtype.name(), projections, &evaluator)?;
-                    let wrapped_visibility =
-                        self.encode_visibility(newtype.wrapped_visibility(), &evaluator)?;
-                    let wrapped =
-                        self.encode_reference(newtype.wrapped(), projections, &evaluator)?;
-                    rendered.push_str(&item_visibility);
-                    rendered.push_str(&struct_keyword);
-                    rendered.push_str(separator);
-                    rendered.push_str(&name);
-                    rendered.push_str(tuple_opening);
-                    rendered.push_str(&wrapped_visibility);
-                    rendered.push_str(&wrapped);
-                    rendered.push_str(tuple_closing);
-                    rendered.push_str(termination);
-                    rendered.push('\n');
+                    require_projection("newtype name", newtype.name(), projections)?;
+                    self.validate_reference(newtype.wrapped(), projections)?;
+                }
+                WholeLogosItem::Enumeration(enumeration) => {
+                    require_projection("enumeration name", enumeration.name(), projections)?;
+                    for variant in enumeration.variants() {
+                        require_projection("variant name", variant.name(), projections)?;
+                        if let WholeLogosVariantPayload::Tuple(fields) = variant.payload() {
+                            for field in fields.fields() {
+                                self.validate_reference(field, projections)?;
+                            }
+                        }
+                    }
                 }
             }
         }
-        Ok(rendered)
+        Ok(())
     }
 
-    fn decode_block<Bindings: DecodeNameBindings<VocabularyRoot> + ?Sized>(
+    fn validate_reference(
         &self,
-        source: &str,
-        block: &DiscoveredCueTerminatedBlock,
-        item_visibility: WholeLogosVisibility,
-        bindings: &Bindings,
-        evaluator: &StructuralEvaluator<'_, VocabularyRoot, RustNewtypeRule>,
-    ) -> Result<WholeLogosNewtype, Error> {
-        if block.cue().evidence() != CueTerminatedBlockCueEvidence::CueTermination(STRUCT_CUE) {
-            return Err(Error::UnsupportedNewtypeShape {
-                bound: block.source_bound(),
-            });
+        reference: &WholeLogosTypeReference,
+        projections: &FixtureRustNameProjectionTable,
+    ) -> Result<(), Error> {
+        let _ = self;
+        match reference {
+            WholeLogosTypeReference::Identity(encoded_id) => {
+                require_projection("type reference", encoded_id, projections)
+            }
+            WholeLogosTypeReference::Application(application) => {
+                require_projection("application head", application.head(), projections)?;
+                self.validate_reference(application.payload(), projections)
+            }
         }
-        self.decode_fixed_position(
-            source,
-            block.cue().bound(),
-            self.vocabulary.ids().struct_keyword_type(),
-            evaluator,
-        )?;
+    }
 
-        let [tuple] = block.children() else {
-            return Err(Error::UnsupportedNewtypeShape {
-                bound: block.source_bound(),
+    fn reify_newtype(
+        &self,
+        value: &StructuralValue<VocabularyRoot>,
+    ) -> Result<WholeLogosNewtype, Error> {
+        let fields = repeated::<ItemElements>(value, "newtype fields")?;
+        let [FieldValue::Delegated(field)] = fields else {
+            return Err(Error::TypedPositionMismatch {
+                position: "one newtype field",
             });
         };
-        if tuple.cue().evidence() != CueTerminatedBlockCueEvidence::Boundary(PARENTHESIS)
-            || !tuple.children().is_empty()
-        {
-            return Err(Error::UnsupportedNewtypeShape {
-                bound: block.source_bound(),
-            });
-        }
-
-        let name_bound = trim_bound(
-            source,
-            checked_bound(
-                source,
-                block.content_bound().start(),
-                tuple.source_bound().start(),
-            )?,
-        )?;
-        let after_tuple = trim_bound(
-            source,
-            checked_bound(
-                source,
-                tuple.source_bound().end(),
-                block.content_bound().end(),
-            )?,
-        )?;
-        let field_bound = trim_bound(source, tuple.content_bound())?;
-        if name_bound.is_empty() || !after_tuple.is_empty() || field_bound.is_empty() {
-            return Err(Error::UnsupportedNewtypeShape {
-                bound: block.source_bound(),
-            });
-        }
-
-        let name = self.decode_declaration(source, name_bound, bindings, evaluator)?;
-        let (wrapped_visibility, reference_bound) =
-            self.field_visibility(source, field_bound, bindings, evaluator)?;
-        let wrapped = self.decode_reference(source, reference_bound, bindings, evaluator)?;
+        let (wrapped_visibility, wrapped) = self.reify_tuple_field(field)?;
         Ok(WholeLogosNewtype::new(
-            item_visibility,
-            name,
+            reify_visibility::<ItemVisibility>(value)?,
+            declaration_id::<ItemName>(value, "newtype name")?,
             wrapped_visibility,
             wrapped,
         ))
     }
 
-    fn field_visibility<Bindings: DecodeNameBindings<VocabularyRoot> + ?Sized>(
+    fn reify_enumeration(
         &self,
-        source: &str,
-        field: SourceBound,
-        bindings: &Bindings,
-        evaluator: &StructuralEvaluator<'_, VocabularyRoot, RustNewtypeRule>,
-    ) -> Result<(WholeLogosVisibility, SourceBound), Error> {
-        let public = self
-            .vocabulary
-            .resolve(self.vocabulary.ids().public_keyword())
-            .expect("the fixed public word was validated at seal")
-            .as_str();
-        let text = &source[field.start()..field.end()];
-        let public_end = field.start() + public.len();
-        let has_public_prefix = text.starts_with(public)
-            && text[public.len()..]
-                .chars()
-                .next()
-                .is_some_and(char::is_whitespace);
-        if !has_public_prefix {
-            return Ok((WholeLogosVisibility::Private, field));
+        value: &StructuralValue<VocabularyRoot>,
+    ) -> Result<WholeLogosEnumeration, Error> {
+        let encoded_variants = repeated::<ItemElements>(value, "enumeration variants")?;
+        let mut variants = Vec::with_capacity(encoded_variants.len());
+        for variant in encoded_variants {
+            let FieldValue::Delegated(variant) = variant else {
+                return Err(Error::TypedPositionMismatch {
+                    position: "enumeration variant",
+                });
+            };
+            variants.push(self.reify_variant(variant)?);
         }
-
-        let keyword_bound = checked_bound(source, field.start(), public_end)?;
-        self.decode_fixed_position(
-            source,
-            keyword_bound,
-            self.vocabulary.ids().public_keyword_type(),
-            evaluator,
-        )?;
-        let reference = trim_bound(source, checked_bound(source, public_end, field.end())?)?;
-        if reference.is_empty() {
-            return Err(Error::UnsupportedNewtypeShape { bound: field });
-        }
-        // The bindings remain lookup-only here; the public word was decoded
-        // against the immutable Rust table, while the following token is
-        // resolved through the caller's Universal projection.
-        let _ = bindings;
-        Ok((WholeLogosVisibility::Public, reference))
+        Ok(WholeLogosEnumeration::new(
+            reify_visibility::<ItemVisibility>(value)?,
+            declaration_id::<ItemName>(value, "enumeration name")?,
+            variants,
+        ))
     }
 
-    fn decode_visibility<Bindings: DecodeNameBindings<VocabularyRoot> + ?Sized>(
+    fn reify_variant(
         &self,
-        source: &str,
-        bound: SourceBound,
-        _bindings: &Bindings,
-        evaluator: &StructuralEvaluator<'_, VocabularyRoot, RustNewtypeRule>,
-        _position: &'static str,
-    ) -> Result<WholeLogosVisibility, Error> {
-        let bound = trim_bound(source, bound)?;
-        if bound.is_empty() {
-            return Ok(WholeLogosVisibility::Private);
+        value: &StructuralValue<VocabularyRoot>,
+    ) -> Result<WholeLogosVariant, Error> {
+        let name = declaration_id::<VariantName>(value, "variant name")?;
+        if value.constructor() == &constructor_for(self.vocabulary.ids().variant(), 1) {
+            return Ok(WholeLogosVariant::new(name, WholeLogosVariantPayload::Unit));
         }
-        self.decode_fixed_position(
-            source,
-            bound,
-            self.vocabulary.ids().public_keyword_type(),
-            evaluator,
-        )?;
-        Ok(WholeLogosVisibility::Public)
+        if value.constructor() == &constructor_for(self.vocabulary.ids().variant(), 2) {
+            let encoded_fields = repeated::<VariantFields>(value, "variant fields")?;
+            let mut fields = Vec::with_capacity(encoded_fields.len());
+            for field in encoded_fields {
+                let FieldValue::Delegated(field) = field else {
+                    return Err(Error::TypedPositionMismatch {
+                        position: "variant tuple field",
+                    });
+                };
+                let (visibility, reference) = self.reify_tuple_field(field)?;
+                if visibility != WholeLogosVisibility::Private {
+                    return Err(Error::UnsupportedVariantFieldVisibility);
+                }
+                fields.push(reference);
+            }
+            let fields =
+                WholeLogosTupleFields::new(fields).map_err(|_| Error::TypedPositionMismatch {
+                    position: "non-empty variant fields",
+                })?;
+            return Ok(WholeLogosVariant::new(
+                name,
+                WholeLogosVariantPayload::Tuple(fields),
+            ));
+        }
+        Err(Error::TypedPositionMismatch {
+            position: "variant constructor",
+        })
     }
 
-    fn decode_fixed_position(
+    fn reify_tuple_field(
         &self,
-        source: &str,
-        bound: SourceBound,
+        value: &StructuralValue<VocabularyRoot>,
+    ) -> Result<(WholeLogosVisibility, WholeLogosTypeReference), Error> {
+        let reference = delegated::<TupleFieldType>(value, "tuple field type")?;
+        Ok((
+            reify_visibility::<TupleFieldVisibility>(value)?,
+            self.reify_reference(reference)?,
+        ))
+    }
+
+    fn reify_reference(
+        &self,
+        value: &StructuralValue<VocabularyRoot>,
+    ) -> Result<WholeLogosTypeReference, Error> {
+        if value.constructor() == &constructor_for(self.vocabulary.ids().type_reference(), 1) {
+            return Ok(WholeLogosTypeReference::Identity(reference_id::<
+                ReferencedTypePosition,
+            >(
+                value,
+                "type reference",
+            )?));
+        }
+        if value.constructor() == &constructor_for(self.vocabulary.ids().type_reference(), 2) {
+            let head = reference_id::<ApplicationHead>(value, "application head")?;
+            let [FieldValue::Delegated(payload)] =
+                repeated::<ApplicationPayload>(value, "application payload")?
+            else {
+                return Err(Error::TypedPositionMismatch {
+                    position: "one application payload",
+                });
+            };
+            return Ok(WholeLogosTypeReference::Application(
+                WholeLogosTypeApplication::new(head, self.reify_reference(payload)?),
+            ));
+        }
+        Err(Error::TypedPositionMismatch {
+            position: "type-reference constructor",
+        })
+    }
+
+    fn reflect_newtype(
+        &self,
+        newtype: &WholeLogosNewtype,
+    ) -> Result<StructuralValue<VocabularyRoot>, Error> {
+        let field = self.reflect_tuple_field(newtype.wrapped_visibility(), newtype.wrapped())?;
+        self.reflect_item(
+            self.vocabulary.ids().newtype_item(),
+            newtype.visibility(),
+            self.vocabulary.ids().struct_keyword(),
+            newtype.name(),
+            vec![field],
+            true,
+        )
+    }
+
+    fn reflect_enumeration(
+        &self,
+        enumeration: &WholeLogosEnumeration,
+    ) -> Result<StructuralValue<VocabularyRoot>, Error> {
+        let variants = enumeration
+            .variants()
+            .iter()
+            .map(|variant| self.reflect_variant(variant))
+            .collect::<Result<Vec<_>, _>>()?;
+        self.reflect_item(
+            self.vocabulary.ids().enumeration_item(),
+            enumeration.visibility(),
+            self.vocabulary.ids().enum_keyword(),
+            enumeration.name(),
+            variants,
+            false,
+        )
+    }
+
+    fn reflect_item(
+        &self,
         expected: &structural_codec::EncodedTypeId<VocabularyRoot>,
-        evaluator: &StructuralEvaluator<'_, VocabularyRoot, RustNewtypeRule>,
-    ) -> Result<(), Error> {
-        let slice = &source[bound.start()..bound.end()];
-        let fixed = FixedBindings(&self.vocabulary);
-        let decoded = evaluator
-            .decode_text(expected, slice, &fixed)
-            .map_err(|error| Error::Decode(offset_decode_error(error, source, bound.start())))?;
-        if decoded.constructor() != &constructor_for(expected) {
-            return Err(Error::TypedPositionMismatch {
-                position: "fixed Rust vocabulary",
-            });
+        visibility: &WholeLogosVisibility,
+        keyword: &VocabularyEncodedId,
+        name: &VocabularyEncodedId,
+        elements: Vec<StructuralValue<VocabularyRoot>>,
+        terminated: bool,
+    ) -> Result<StructuralValue<VocabularyRoot>, Error> {
+        let elements = FieldValue::Repeated(
+            elements
+                .into_iter()
+                .map(|value| FieldValue::Delegated(Box::new(value)))
+                .collect(),
+        );
+        let mut record = StructuralValue::record(constructor_for(expected, 1));
+        record.insert::<ItemRoot>(ordered_sequence_value())?;
+        record.insert::<ItemVisibility>(reflect_visibility(
+            visibility,
+            self.vocabulary.ids().public_keyword(),
+        ))?;
+        record.insert::<ItemKeyword>(FieldValue::Literal(keyword.clone()))?;
+        record.insert::<ItemName>(FieldValue::Declaration(DeclarationAssignment::new(
+            name.clone(),
+        )))?;
+        record.insert::<ItemBody>(FieldValue::Delimited(Box::new(elements.clone())))?;
+        record.insert::<ItemElements>(elements)?;
+        if terminated {
+            record.insert::<ItemTerminator>(FieldValue::Literal(
+                self.vocabulary.ids().semicolon().clone(),
+            ))?;
+        } else {
+            record.insert::<ItemTerminator>(FieldValue::Repeated(Vec::new()))?;
         }
-        Ok(())
+        Ok(record.finish())
     }
 
-    fn decode_declaration<Bindings: DecodeNameBindings<VocabularyRoot> + ?Sized>(
+    fn reflect_variant(
         &self,
-        source: &str,
-        bound: SourceBound,
-        bindings: &Bindings,
-        evaluator: &StructuralEvaluator<'_, VocabularyRoot, RustNewtypeRule>,
-    ) -> Result<VocabularyEncodedId, Error> {
-        let offset = OffsetBindings {
-            inner: bindings,
-            source,
-            offset: bound.start(),
-        };
-        let value = evaluator
-            .decode_text(
-                self.vocabulary.ids().declaration_name_type(),
-                &source[bound.start()..bound.end()],
-                &offset,
-            )
-            .map_err(|error| Error::Decode(offset_decode_error(error, source, bound.start())))?;
-        match value.field::<DeclarationNamePosition>() {
-            Some(FieldValue::Declaration(assignment)) => {
-                validate_universal("newtype name", assignment.encoded_id())?;
-                Ok(assignment.encoded_id().clone())
+        variant: &WholeLogosVariant,
+    ) -> Result<StructuralValue<VocabularyRoot>, Error> {
+        match variant.payload() {
+            WholeLogosVariantPayload::Unit => {
+                let mut record =
+                    StructuralValue::record(constructor_for(self.vocabulary.ids().variant(), 1));
+                record.insert::<VariantRoot>(ordered_sequence_value())?;
+                record.insert::<VariantName>(FieldValue::Declaration(
+                    DeclarationAssignment::new(variant.name().clone()),
+                ))?;
+                record.insert::<VariantTerminator>(FieldValue::Literal(
+                    self.vocabulary.ids().comma().clone(),
+                ))?;
+                Ok(record.finish())
             }
-            _ => Err(Error::TypedPositionMismatch {
-                position: "declaration name",
-            }),
+            WholeLogosVariantPayload::Tuple(fields) => {
+                let fields = FieldValue::Repeated(
+                    fields
+                        .fields()
+                        .iter()
+                        .map(|field| {
+                            self.reflect_tuple_field(&WholeLogosVisibility::Private, field)
+                                .map(|value| FieldValue::Delegated(Box::new(value)))
+                        })
+                        .collect::<Result<Vec<_>, _>>()?,
+                );
+                let mut record =
+                    StructuralValue::record(constructor_for(self.vocabulary.ids().variant(), 2));
+                record.insert::<VariantRoot>(ordered_sequence_value())?;
+                record.insert::<VariantName>(FieldValue::Declaration(
+                    DeclarationAssignment::new(variant.name().clone()),
+                ))?;
+                record.insert::<VariantBody>(FieldValue::Delimited(Box::new(fields.clone())))?;
+                record.insert::<VariantFields>(fields)?;
+                record.insert::<VariantTerminator>(FieldValue::Literal(
+                    self.vocabulary.ids().comma().clone(),
+                ))?;
+                Ok(record.finish())
+            }
         }
     }
 
-    fn decode_reference<Bindings: DecodeNameBindings<VocabularyRoot> + ?Sized>(
-        &self,
-        source: &str,
-        bound: SourceBound,
-        bindings: &Bindings,
-        evaluator: &StructuralEvaluator<'_, VocabularyRoot, RustNewtypeRule>,
-    ) -> Result<VocabularyEncodedId, Error> {
-        let offset = OffsetBindings {
-            inner: bindings,
-            source,
-            offset: bound.start(),
-        };
-        let value = evaluator
-            .decode_text(
-                self.vocabulary.ids().referenced_type_type(),
-                &source[bound.start()..bound.end()],
-                &offset,
-            )
-            .map_err(|error| Error::Decode(offset_decode_error(error, source, bound.start())))?;
-        match value.field::<ReferencedTypePosition>() {
-            Some(FieldValue::Reference(reference)) => {
-                validate_universal("wrapped type", reference.encoded_id())?;
-                Ok(reference.encoded_id().clone())
-            }
-            _ => Err(Error::TypedPositionMismatch {
-                position: "referenced type",
-            }),
-        }
-    }
-
-    fn encode_visibility(
+    fn reflect_tuple_field(
         &self,
         visibility: &WholeLogosVisibility,
-        evaluator: &StructuralEvaluator<'_, VocabularyRoot, RustNewtypeRule>,
-    ) -> Result<String, Error> {
-        match visibility {
-            WholeLogosVisibility::Private => Ok(String::new()),
-            WholeLogosVisibility::Public => {
-                let word = self.encode_literal::<PublicKeywordPosition>(
-                    self.vocabulary.ids().public_keyword_type(),
-                    self.vocabulary.ids().public_keyword(),
-                    evaluator,
-                )?;
-                Ok(format!("{word}{}", self.vocabulary.item_separator()))
+        reference: &WholeLogosTypeReference,
+    ) -> Result<StructuralValue<VocabularyRoot>, Error> {
+        let reference = FieldValue::Delegated(Box::new(self.reflect_reference(reference)?));
+        let mut record =
+            StructuralValue::record(constructor_for(self.vocabulary.ids().tuple_field(), 1));
+        record.insert::<TupleFieldRoot>(ordered_sequence_value())?;
+        record.insert::<TupleFieldVisibility>(reflect_visibility(
+            visibility,
+            self.vocabulary.ids().public_keyword(),
+        ))?;
+        record.insert::<TupleFieldType>(reference)?;
+        record.insert::<TupleFieldTerminator>(FieldValue::Literal(
+            self.vocabulary.ids().comma().clone(),
+        ))?;
+        Ok(record.finish())
+    }
+
+    fn reflect_reference(
+        &self,
+        reference: &WholeLogosTypeReference,
+    ) -> Result<StructuralValue<VocabularyRoot>, Error> {
+        match reference {
+            WholeLogosTypeReference::Identity(encoded_id) => {
+                let mut record = StructuralValue::record(constructor_for(
+                    self.vocabulary.ids().type_reference(),
+                    1,
+                ));
+                record.insert::<ReferencedTypePosition>(FieldValue::Reference(
+                    ResolvedReference::new(encoded_id.clone()),
+                ))?;
+                Ok(record.finish())
+            }
+            WholeLogosTypeReference::Application(application) => {
+                let payload = FieldValue::Repeated(vec![FieldValue::Delegated(Box::new(
+                    self.reflect_reference(application.payload())?,
+                ))]);
+                let mut record = StructuralValue::record(constructor_for(
+                    self.vocabulary.ids().type_reference(),
+                    2,
+                ));
+                record.insert::<ApplicationRoot>(ordered_sequence_value())?;
+                record.insert::<ApplicationHead>(FieldValue::Reference(ResolvedReference::new(
+                    application.head().clone(),
+                )))?;
+                record
+                    .insert::<ApplicationBody>(FieldValue::Delimited(Box::new(payload.clone())))?;
+                record.insert::<ApplicationPayload>(payload)?;
+                Ok(record.finish())
             }
         }
     }
+}
 
-    fn encode_literal<Role: FieldRole>(
-        &self,
-        expected: &structural_codec::EncodedTypeId<VocabularyRoot>,
-        encoded_id: &VocabularyEncodedId,
-        evaluator: &StructuralEvaluator<'_, VocabularyRoot, RustNewtypeRule>,
-    ) -> Result<String, Error> {
-        let mut record = StructuralValue::record(constructor_for(expected));
-        record.insert::<Role>(FieldValue::Literal(encoded_id.clone()))?;
-        Ok(evaluator.encode_text(expected, &record.finish(), &self.vocabulary)?)
-    }
-
-    fn encode_declaration(
-        &self,
-        encoded_id: &VocabularyEncodedId,
-        projections: &RustNameProjectionTable,
-        evaluator: &StructuralEvaluator<'_, VocabularyRoot, RustNewtypeRule>,
-    ) -> Result<String, Error> {
-        validate_universal("newtype name", encoded_id)?;
-        if projections.projected(encoded_id).is_none() {
-            return Err(Error::MissingProjection {
-                encoded_id: encoded_id.clone(),
-            });
+fn reflect_visibility(
+    visibility: &WholeLogosVisibility,
+    public_keyword: &VocabularyEncodedId,
+) -> FieldValue<VocabularyRoot> {
+    match visibility {
+        WholeLogosVisibility::Public => {
+            FieldValue::Repeated(vec![FieldValue::Literal(public_keyword.clone())])
         }
-        let expected = self.vocabulary.ids().declaration_name_type();
-        let mut record = StructuralValue::record(constructor_for(expected));
-        record.insert::<DeclarationNamePosition>(FieldValue::Declaration(
-            DeclarationAssignment::new(encoded_id.clone()),
-        ))?;
-        Ok(evaluator.encode_text(expected, &record.finish(), projections)?)
+        WholeLogosVisibility::Private => FieldValue::Repeated(Vec::new()),
     }
+}
 
-    fn encode_reference(
-        &self,
-        encoded_id: &VocabularyEncodedId,
-        projections: &RustNameProjectionTable,
-        evaluator: &StructuralEvaluator<'_, VocabularyRoot, RustNewtypeRule>,
-    ) -> Result<String, Error> {
-        validate_universal("wrapped type", encoded_id)?;
-        if projections.projected(encoded_id).is_none() {
-            return Err(Error::MissingProjection {
-                encoded_id: encoded_id.clone(),
-            });
+fn reify_visibility<Role: FieldRole>(
+    value: &StructuralValue<VocabularyRoot>,
+) -> Result<WholeLogosVisibility, Error> {
+    match value.field::<Role>() {
+        Some(FieldValue::Repeated(words)) if words.is_empty() => Ok(WholeLogosVisibility::Private),
+        Some(FieldValue::Repeated(words))
+            if words.len() == 1 && matches!(words[0], FieldValue::Literal(_)) =>
+        {
+            Ok(WholeLogosVisibility::Public)
         }
-        let expected = self.vocabulary.ids().referenced_type_type();
-        let mut record = StructuralValue::record(constructor_for(expected));
-        record.insert::<ReferencedTypePosition>(FieldValue::Reference(ResolvedReference::new(
-            encoded_id.clone(),
-        )))?;
-        Ok(evaluator.encode_text(expected, &record.finish(), projections)?)
+        _ => Err(Error::TypedPositionMismatch {
+            position: "visibility",
+        }),
     }
+}
+
+fn require_projection(
+    position: &'static str,
+    encoded_id: &VocabularyEncodedId,
+    projections: &FixtureRustNameProjectionTable,
+) -> Result<(), Error> {
+    validate_universal(position, encoded_id)?;
+    if projections.projected(encoded_id).is_none() {
+        return Err(Error::MissingProjection {
+            encoded_id: encoded_id.clone(),
+        });
+    }
+    Ok(())
 }
 
 fn validate_universal(
@@ -420,6 +529,52 @@ fn validate_universal(
         });
     }
     Ok(())
+}
+
+fn repeated<'a, Role: FieldRole>(
+    value: &'a StructuralValue<VocabularyRoot>,
+    position: &'static str,
+) -> Result<&'a [FieldValue<VocabularyRoot>], Error> {
+    match value.field::<Role>() {
+        Some(FieldValue::Repeated(values)) => Ok(values),
+        _ => Err(Error::TypedPositionMismatch { position }),
+    }
+}
+
+fn delegated<'a, Role: FieldRole>(
+    value: &'a StructuralValue<VocabularyRoot>,
+    position: &'static str,
+) -> Result<&'a StructuralValue<VocabularyRoot>, Error> {
+    match value.field::<Role>() {
+        Some(FieldValue::Delegated(value)) => Ok(value),
+        _ => Err(Error::TypedPositionMismatch { position }),
+    }
+}
+
+fn declaration_id<Role: FieldRole>(
+    value: &StructuralValue<VocabularyRoot>,
+    position: &'static str,
+) -> Result<VocabularyEncodedId, Error> {
+    match value.field::<Role>() {
+        Some(FieldValue::Declaration(assignment)) => {
+            validate_universal(position, assignment.encoded_id())?;
+            Ok(assignment.encoded_id().clone())
+        }
+        _ => Err(Error::TypedPositionMismatch { position }),
+    }
+}
+
+fn reference_id<Role: FieldRole>(
+    value: &StructuralValue<VocabularyRoot>,
+    position: &'static str,
+) -> Result<VocabularyEncodedId, Error> {
+    match value.field::<Role>() {
+        Some(FieldValue::Reference(reference)) => {
+            validate_universal(position, reference.encoded_id())?;
+            Ok(reference.encoded_id().clone())
+        }
+        _ => Err(Error::TypedPositionMismatch { position }),
+    }
 }
 
 fn checked_bound(source: &str, start: usize, end: usize) -> Result<SourceBound, Error> {
@@ -444,7 +599,7 @@ fn offset_decode_error(
 ) -> DecodeError<VocabularyRoot> {
     let offset_bound = |bound: SourceBound| {
         SourceBound::checked(source, offset + bound.start(), offset + bound.end())
-            .expect("a typed-position failure bound stays inside its original source")
+            .expect("relative evaluator bounds stay inside the complete source")
     };
     match error {
         DecodeError::MissingDeclarationAssignment { bound } => {
@@ -471,33 +626,23 @@ fn offset_decode_error(
     }
 }
 
-struct FixedBindings<'names>(&'names RustNewtypeVocabulary);
+struct FixtureResolver<'a> {
+    vocabulary: &'a FixtureRustVocabulary,
+    projections: &'a FixtureRustNameProjectionTable,
+}
 
-impl EncodedNameResolver<VocabularyRoot> for FixedBindings<'_> {
+impl EncodedNameResolver<VocabularyRoot> for FixtureResolver<'_> {
     fn resolve(&self, encoded_id: &VocabularyEncodedId) -> Option<&Name> {
-        self.0.resolve(encoded_id)
+        self.vocabulary
+            .resolve(encoded_id)
+            .or_else(|| self.projections.resolve(encoded_id))
     }
 }
 
-impl DecodeNameBindings<VocabularyRoot> for FixedBindings<'_> {
-    fn declaration_assignment(
-        &self,
-        _occurrence: NameOccurrence<'_>,
-    ) -> Option<DeclarationAssignment<VocabularyRoot>> {
-        None
-    }
-
-    fn reference_resolution(
-        &self,
-        _occurrence: NameOccurrence<'_>,
-    ) -> Option<ResolvedReference<VocabularyRoot>> {
-        None
-    }
-}
-
-struct OffsetBindings<'bindings, Bindings: ?Sized> {
-    inner: &'bindings Bindings,
-    source: &'bindings str,
+struct OffsetBindings<'a, Bindings: ?Sized> {
+    vocabulary: &'a FixtureRustVocabulary,
+    inner: &'a Bindings,
+    source: &'a str,
     offset: usize,
 }
 
@@ -505,7 +650,9 @@ impl<Bindings: EncodedNameResolver<VocabularyRoot> + ?Sized> EncodedNameResolver
     for OffsetBindings<'_, Bindings>
 {
     fn resolve(&self, encoded_id: &VocabularyEncodedId) -> Option<&Name> {
-        self.inner.resolve(encoded_id)
+        self.vocabulary
+            .resolve(encoded_id)
+            .or_else(|| self.inner.resolve(encoded_id))
     }
 }
 
@@ -516,27 +663,38 @@ impl<Bindings: DecodeNameBindings<VocabularyRoot> + ?Sized> DecodeNameBindings<V
         &self,
         occurrence: NameOccurrence<'_>,
     ) -> Option<DeclarationAssignment<VocabularyRoot>> {
-        let bound = SourceBound::checked(
-            self.source,
-            self.offset + occurrence.bound().start(),
-            self.offset + occurrence.bound().end(),
-        )
-        .expect("a relative bound inside the sliced source stays inside the original source");
         self.inner
-            .declaration_assignment(NameOccurrence::new(occurrence.spelling(), bound))
+            .declaration_assignment(self.absolute_occurrence(occurrence))
     }
 
     fn reference_resolution(
         &self,
         occurrence: NameOccurrence<'_>,
     ) -> Option<ResolvedReference<VocabularyRoot>> {
+        self.inner
+            .reference_resolution(self.absolute_occurrence(occurrence))
+    }
+}
+
+impl<Bindings: ?Sized> OffsetBindings<'_, Bindings> {
+    fn absolute_occurrence<'a>(&self, occurrence: NameOccurrence<'a>) -> NameOccurrence<'a> {
         let bound = SourceBound::checked(
             self.source,
             self.offset + occurrence.bound().start(),
             self.offset + occurrence.bound().end(),
         )
-        .expect("a relative bound inside the sliced source stays inside the original source");
-        self.inner
-            .reference_resolution(NameOccurrence::new(occurrence.spelling(), bound))
+        .expect("relative evaluator bounds stay inside the complete source");
+        NameOccurrence::new(occurrence.spelling(), bound)
+    }
+}
+
+struct RenderedFixtureDocument(Vec<String>);
+
+impl std::fmt::Display for RenderedFixtureDocument {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for item in &self.0 {
+            writeln!(formatter, "{item}")?;
+        }
+        Ok(())
     }
 }
