@@ -59,16 +59,9 @@ pub enum Error {
     #[error("legacy Logos name projection failed: {0}")]
     LegacyName(#[from] legacy_name_table::NameTableError),
 
-    /// The fixed-prelude compatibility projector received another item shape.
-    #[error("fixed-prelude projector does not support {construct}")]
-    LegacyProjectionUnsupported {
-        /// The unsupported encoded item or nested value.
-        construct: &'static str,
-    },
-
-    /// The fixed-prelude token structure did not form a Rust file.
-    #[error("fixed-prelude token structure did not parse as Rust: {0}")]
-    LegacyProjection(String),
+    /// A legacy Logos token structure did not form a Rust item or file.
+    #[error("legacy Logos token structure did not parse as Rust: {0}")]
+    Project(String),
 
     /// A caller supplied a Rust-owned vocabulary position under another root.
     #[error("{position} must use the Rust vocabulary root, found {found:?}")]
