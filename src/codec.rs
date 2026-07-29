@@ -99,6 +99,9 @@ impl RustLogos {
             self.vocabulary.ids().struct_keyword(),
             &evaluator,
         )?;
+        let separator = self.vocabulary.item_separator();
+        let (tuple_opening, tuple_closing) = self.vocabulary.tuple_delimiters();
+        let termination = self.vocabulary.item_termination();
         let mut rendered = String::new();
         for item in logos.items() {
             match item {
@@ -112,12 +115,14 @@ impl RustLogos {
                         self.encode_reference(newtype.wrapped(), projections, &evaluator)?;
                     rendered.push_str(&item_visibility);
                     rendered.push_str(&struct_keyword);
-                    rendered.push(' ');
+                    rendered.push_str(separator);
                     rendered.push_str(&name);
-                    rendered.push('(');
+                    rendered.push_str(tuple_opening);
                     rendered.push_str(&wrapped_visibility);
                     rendered.push_str(&wrapped);
-                    rendered.push_str(");\n");
+                    rendered.push_str(tuple_closing);
+                    rendered.push_str(termination);
+                    rendered.push('\n');
                 }
             }
         }
@@ -347,7 +352,7 @@ impl RustLogos {
                     self.vocabulary.ids().public_keyword(),
                     evaluator,
                 )?;
-                Ok(format!("{word} "))
+                Ok(format!("{word}{}", self.vocabulary.item_separator()))
             }
         }
     }

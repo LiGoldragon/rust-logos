@@ -271,6 +271,40 @@ impl RustNewtypeVocabulary {
     pub(crate) fn rust_discovery(&self) -> &SealedCueTerminatedBlockDiscoveryConfiguration {
         &self.rust_discovery
     }
+
+    pub(crate) fn item_separator(&self) -> &str {
+        let Trigger::Whitespace { canonical_spelling } = &self
+            .table
+            .token_profile()
+            .definition(WHITESPACE)
+            .expect("the sealed table retains its validated whitespace position")
+            .trigger
+        else {
+            unreachable!("the table seal validated the textual separator as whitespace")
+        };
+        canonical_spelling
+    }
+
+    pub(crate) fn tuple_delimiters(&self) -> (&str, &str) {
+        let Trigger::Boundary { opening, closing } = &self
+            .rust_profile
+            .definition(PARENTHESIS)
+            .expect("the sealed Rust profile retains its tuple boundary")
+            .trigger
+        else {
+            unreachable!("the cue discovery seal validated the tuple boundary")
+        };
+        (opening, closing)
+    }
+
+    pub(crate) fn item_termination(&self) -> &str {
+        self.rust_discovery
+            .rules()
+            .iter()
+            .find(|rule| rule.identifier() == STRUCT_CUE)
+            .expect("the sealed Rust discovery retains its struct rule")
+            .termination()
+    }
 }
 
 impl EncodedNameResolver<VocabularyRoot> for RustNewtypeVocabulary {
