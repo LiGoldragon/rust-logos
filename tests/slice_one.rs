@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::process::Command;
 
@@ -11,8 +11,9 @@ use core_logos::{
 use name_table::{LocalEncodedId, Name};
 use raw_discovery::{BlockDiscoveryError, BoundaryDiscoveryError, SourceBound, TokenProfileError};
 use rust_logos::{
-    Error, FixtureRustEmittedIdentifier, FixtureRustNameProjectionTable, FixtureRustVocabulary,
-    FixtureRustVocabularyIds, RustLogos,
+    BASE58BTC_MULTIBASE_PREFIX, ENCODED_ID_FORMAT_VERSION, EncodedIdCodecRefusal, Error,
+    FixtureRustEmittedIdentifier, FixtureRustNameProjectionTable, FixtureRustVocabulary,
+    FixtureRustVocabularyIds, RustEncodedIdCodec, RustLogos,
 };
 use signal_sema_translator::{VocabularyEncodedId, VocabularyRoot};
 use structural_codec::{
@@ -272,6 +273,79 @@ fn expected_logos(fixture: &Fixture) -> WholeLogos {
     ])
 }
 
+fn production_logos(fixture: &Fixture) -> (WholeLogos, VocabularyEncodedId, VocabularyEncodedId) {
+    let unsigned_64 = encoded(VocabularyRoot::Rust, &[20]);
+    let vector = encoded(VocabularyRoot::Rust, &[21]);
+    (
+        WholeLogos::new(vec![
+            WholeLogosItem::Newtype(WholeLogosNewtype::new(
+                WholeLogosVisibility::Public,
+                fixture.newtype.clone(),
+                WholeLogosVisibility::Private,
+                WholeLogosTypeReference::Application(WholeLogosTypeApplication::new(
+                    vector.clone(),
+                    WholeLogosTypeReference::Identity(unsigned_64.clone()),
+                )),
+            )),
+            WholeLogosItem::Enumeration(WholeLogosEnumeration::new(
+                WholeLogosVisibility::Public,
+                fixture.enumeration.clone(),
+                vec![
+                    WholeLogosVariant::new(fixture.unit.clone(), WholeLogosVariantPayload::Unit),
+                    WholeLogosVariant::new(
+                        fixture.payload.clone(),
+                        WholeLogosVariantPayload::Tuple(
+                            WholeLogosTupleFields::new(vec![
+                                WholeLogosTypeReference::Identity(unsigned_64.clone()),
+                                WholeLogosTypeReference::Application(
+                                    WholeLogosTypeApplication::new(
+                                        vector.clone(),
+                                        WholeLogosTypeReference::Identity(unsigned_64.clone()),
+                                    ),
+                                ),
+                            ])
+                            .expect("non-empty production tuple"),
+                        ),
+                    ),
+                ],
+            )),
+        ]),
+        unsigned_64,
+        vector,
+    )
+}
+
+fn production_allocations(
+    fixture: &Fixture,
+    unsigned_64: &VocabularyEncodedId,
+    vector: &VocabularyEncodedId,
+    reverse: bool,
+) -> Names {
+    let mut entries = vec![
+        (fixture.newtype.clone(), "HumanNewtype"),
+        (fixture.enumeration.clone(), "HumanEnumeration"),
+        (fixture.unit.clone(), "HumanUnit"),
+        (fixture.payload.clone(), "HumanPayload"),
+        (unsigned_64.clone(), "u64"),
+        (vector.clone(), "Vec"),
+    ];
+    if reverse {
+        entries.reverse();
+    }
+    let mut names = Names::default();
+    for (identity, spelling) in entries {
+        names.add(identity, spelling);
+    }
+    names
+}
+
+fn token_for_payload(payload: &[u8]) -> String {
+    format!(
+        "{BASE58BTC_MULTIBASE_PREFIX}{}",
+        bs58::encode(payload).into_string()
+    )
+}
+
 #[test]
 fn structural_decode_and_emission_round_trip_complete_fixture_shapes() {
     let fixture = fixture();
@@ -290,6 +364,283 @@ fn structural_decode_and_emission_round_trip_complete_fixture_shapes() {
         .decode_fixture(&emitted, &bindings(&emitted, &fixture))
         .expect("emitted fixture reparses");
     assert_eq!(reparsed, decoded);
+}
+
+#[test]
+fn encoded_id_codec_round_trips_explicit_roots_and_u16_boundaries() {
+    for identity in [
+        encoded(VocabularyRoot::Universal, &[0]),
+        encoded(VocabularyRoot::Universal, &[u16::MAX]),
+        encoded(VocabularyRoot::Rust, &[0, 1, u16::MAX]),
+    ] {
+        let token = RustEncodedIdCodec::encode(&identity);
+        assert_eq!(token.chars().next(), Some(BASE58BTC_MULTIBASE_PREFIX));
+        assert!(
+            token
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric())
+        );
+        assert!(!token.chars().any(|character| "0OIl".contains(character)));
+        assert_eq!(
+            RustEncodedIdCodec::decode(&token).expect("canonical token"),
+            identity
+        );
+    }
+
+    let identity = encoded(VocabularyRoot::Universal, &[0x1234, 0xabcd]);
+    let token = RustEncodedIdCodec::encode(&identity);
+    let payload = bs58::decode(&token[1..])
+        .into_vec()
+        .expect("Base58BTC token");
+    assert_eq!(
+        payload,
+        [
+            ENCODED_ID_FORMAT_VERSION,
+            VocabularyRoot::Universal.tag(),
+            0x12,
+            0x34,
+            0xab,
+            0xcd,
+        ]
+    );
+}
+
+#[test]
+fn encoded_id_codec_refuses_every_noncanonical_payload_class() {
+    for (token, expected) in [
+        (String::new(), EncodedIdCodecRefusal::MissingMultibasePrefix),
+        (
+            String::from("x123"),
+            EncodedIdCodecRefusal::WrongMultibasePrefix { found: 'x' },
+        ),
+        (String::from("z"), EncodedIdCodecRefusal::MalformedBase58),
+        (String::from("z0"), EncodedIdCodecRefusal::MalformedBase58),
+        (
+            token_for_payload(&[0, VocabularyRoot::Universal.tag(), 0, 1]),
+            EncodedIdCodecRefusal::NonCanonicalBase58,
+        ),
+        (
+            token_for_payload(&[2, VocabularyRoot::Universal.tag(), 0, 1]),
+            EncodedIdCodecRefusal::UnsupportedFormatVersion { found: 2 },
+        ),
+        (
+            token_for_payload(&[ENCODED_ID_FORMAT_VERSION]),
+            EncodedIdCodecRefusal::InvalidPayloadLength { found: 1 },
+        ),
+        (
+            token_for_payload(&[ENCODED_ID_FORMAT_VERSION, 99, 0, 1]),
+            EncodedIdCodecRefusal::UnsupportedRoot { found: 99 },
+        ),
+        (
+            token_for_payload(&[ENCODED_ID_FORMAT_VERSION, VocabularyRoot::Universal.tag()]),
+            EncodedIdCodecRefusal::EmptyChain,
+        ),
+        (
+            token_for_payload(&[
+                ENCODED_ID_FORMAT_VERSION,
+                VocabularyRoot::Universal.tag(),
+                0,
+            ]),
+            EncodedIdCodecRefusal::InvalidPayloadParity { found: 3 },
+        ),
+    ] {
+        assert_eq!(RustEncodedIdCodec::decode(&token), Err(expected));
+    }
+}
+
+#[test]
+fn encoded_id_codec_is_injective_for_every_one_local_production_identity() {
+    let mut tokens = BTreeSet::new();
+    for root in [VocabularyRoot::Universal, VocabularyRoot::Rust] {
+        for local in 0..=u16::MAX {
+            let identity = encoded(root, &[local]);
+            let token = RustEncodedIdCodec::encode(&identity);
+            assert!(tokens.insert(token.clone()), "collision at {identity:?}");
+            assert_eq!(
+                RustEncodedIdCodec::decode(&token).expect("round trip"),
+                identity
+            );
+        }
+    }
+    assert_eq!(tokens.len(), 2 * (usize::from(u16::MAX) + 1));
+}
+
+#[test]
+fn encoded_id_codec_has_no_semantic_chain_depth_cap() {
+    let chain: Vec<u16> = (0..4096)
+        .map(|index| u16::try_from(index).expect("bounded test chain"))
+        .collect();
+    let identity = encoded(VocabularyRoot::Universal, &chain);
+    let token = RustEncodedIdCodec::encode(&identity);
+    assert_eq!(
+        RustEncodedIdCodec::decode(&token).expect("long chain"),
+        identity
+    );
+}
+
+#[test]
+fn production_emission_uses_identity_and_immutable_rust_vocabulary() {
+    let fixture = fixture();
+    let (logos, unsigned_64, vector) = production_logos(&fixture);
+    let forward = production_allocations(&fixture, &unsigned_64, &vector, false);
+    let reverse = production_allocations(&fixture, &unsigned_64, &vector, true);
+    let emitted = fixture
+        .codec
+        .emit(&logos, &forward)
+        .expect("production emission");
+    let restarted = fixture
+        .codec
+        .emit(&logos, &reverse)
+        .expect("restarted production emission");
+
+    assert_eq!(emitted, restarted);
+    assert!(emitted.contains(&RustEncodedIdCodec::encode(&fixture.newtype)));
+    assert!(emitted.contains(&RustEncodedIdCodec::encode(&fixture.enumeration)));
+    assert!(emitted.contains(&RustEncodedIdCodec::encode(&fixture.unit)));
+    assert!(emitted.contains(&RustEncodedIdCodec::encode(&fixture.payload)));
+    assert!(emitted.contains("Vec"), "{emitted}");
+    assert!(emitted.contains("u64"), "{emitted}");
+    for spelling in [
+        "HumanNewtype",
+        "HumanEnumeration",
+        "HumanUnit",
+        "HumanPayload",
+    ] {
+        assert!(!emitted.contains(spelling));
+    }
+    assert_eq!(std::mem::size_of::<RustEncodedIdCodec>(), 0);
+}
+
+#[test]
+fn operational_rename_cannot_change_production_emission() {
+    let fixture = fixture();
+    let (logos, unsigned_64, vector) = production_logos(&fixture);
+    let before = production_allocations(&fixture, &unsigned_64, &vector, false);
+    let mut after = production_allocations(&fixture, &unsigned_64, &vector, false);
+    after.add(fixture.newtype.clone(), "RenamedNewtype");
+    after.add(fixture.enumeration.clone(), "RenamedEnumeration");
+    after.add(fixture.unit.clone(), "RenamedUnit");
+    after.add(fixture.payload.clone(), "RenamedPayload");
+
+    assert_eq!(
+        fixture.codec.emit(&logos, &before).expect("before rename"),
+        fixture.codec.emit(&logos, &after).expect("after rename")
+    );
+}
+
+#[test]
+fn structurally_emitted_production_names_compile_and_run() {
+    let fixture = fixture();
+    let (logos, unsigned_64, vector) = production_logos(&fixture);
+    let allocations = production_allocations(&fixture, &unsigned_64, &vector, false);
+    let emitted = fixture
+        .codec
+        .emit(&logos, &allocations)
+        .expect("production emission");
+    let newtype = RustEncodedIdCodec::encode(&fixture.newtype);
+    let enumeration = RustEncodedIdCodec::encode(&fixture.enumeration);
+    let unit = RustEncodedIdCodec::encode(&fixture.unit);
+    let payload = RustEncodedIdCodec::encode(&fixture.payload);
+    let temporary =
+        std::env::temp_dir().join(format!("rust-logos-production-{}", std::process::id()));
+    if temporary.exists() {
+        fs::remove_dir_all(&temporary).expect("clear prior production witness");
+    }
+    fs::create_dir_all(temporary.join("src")).expect("create production scratch crate");
+    fs::write(
+        temporary.join("Cargo.toml"),
+        "[package]\nname = \"rust-logos-production\"\nversion = \"0.0.0\"\nedition = \"2024\"\n",
+    )
+    .expect("write production scratch manifest");
+    fs::write(
+        temporary.join("src/main.rs"),
+        format!(
+            "{emitted}\nfn score(value: {enumeration}) -> usize {{ match value {{ {enumeration}::{unit} => 1, {enumeration}::{payload}(number, values) => number as usize + values.len(), }} }}\nfn main() {{ let wrapped = {newtype}(vec![1, 2, 3]); assert_eq!(wrapped.0.len(), 3); assert_eq!(score({enumeration}::{unit}), 1); assert_eq!(score({enumeration}::{payload}(40, vec![1, 2])), 42); }}\n"
+        ),
+    )
+    .expect("write production scratch program");
+    let execution = Command::new("cargo")
+        .arg("run")
+        .arg("--quiet")
+        .current_dir(&temporary)
+        .output()
+        .expect("run production scratch crate");
+    assert!(
+        execution.status.success(),
+        "cargo stderr:\n{}",
+        String::from_utf8_lossy(&execution.stderr)
+    );
+    fs::remove_dir_all(&temporary).expect("remove production scratch crate");
+}
+
+#[test]
+fn rustc_accepts_a_long_encoded_identity_in_item_type_function_and_const_positions() {
+    let chain: Vec<u16> = (0..128)
+        .map(|index| u16::try_from(index).expect("bounded rustc chain"))
+        .collect();
+    let token = RustEncodedIdCodec::encode(&encoded(VocabularyRoot::Universal, &chain));
+    assert!(token.len() > 250, "witness must exceed the rejected cap");
+    let temporary =
+        std::env::temp_dir().join(format!("rust-logos-positions-{}", std::process::id()));
+    if temporary.exists() {
+        fs::remove_dir_all(&temporary).expect("clear prior position witness");
+    }
+    fs::create_dir_all(&temporary).expect("create position witness");
+    let source = temporary.join("positions.rs");
+    fs::write(
+        &source,
+        format!(
+            "#![allow(non_camel_case_types, non_snake_case, non_upper_case_globals)]\nmod item_position {{ pub struct {token}; }}\nmod type_position {{ pub type {token} = u8; }}\nmod function_position {{ pub fn {token}() -> u8 {{ 1 }} }}\nmod const_position {{ pub const {token}: u8 = 2; }}\nfn main() {{ let _ = item_position::{token}; let _: type_position::{token} = 0; assert_eq!(function_position::{token}(), 1); assert_eq!(const_position::{token}, 2); }}\n"
+        ),
+    )
+    .expect("write position source");
+    let execution = Command::new("rustc")
+        .arg("--edition=2024")
+        .arg(&source)
+        .arg("-o")
+        .arg(temporary.join("positions"))
+        .output()
+        .expect("compile position witness");
+    assert!(
+        execution.status.success(),
+        "rustc stderr:\n{}",
+        String::from_utf8_lossy(&execution.stderr)
+    );
+    let run = Command::new(temporary.join("positions"))
+        .output()
+        .expect("run position witness");
+    assert!(run.status.success());
+    fs::remove_dir_all(&temporary).expect("remove position witness");
+}
+
+#[test]
+fn production_emission_refuses_unallocated_or_wrong_root_declarations_without_source() {
+    let fixture = fixture();
+    let (logos, unsigned_64, vector) = production_logos(&fixture);
+    let mut incomplete = Names::default();
+    incomplete.add(fixture.newtype.clone(), "Newtype");
+    let refusal = fixture
+        .codec
+        .emit(&logos, &incomplete)
+        .expect_err("unallocated identity");
+    assert!(matches!(refusal, Error::UnallocatedEncodedIdentity { .. }));
+
+    let rust_declaration = encoded(VocabularyRoot::Rust, &[77]);
+    let wrong_root = WholeLogos::new(vec![WholeLogosItem::Newtype(WholeLogosNewtype::new(
+        WholeLogosVisibility::Public,
+        rust_declaration.clone(),
+        WholeLogosVisibility::Private,
+        WholeLogosTypeReference::Identity(unsigned_64.clone()),
+    ))]);
+    let mut allocated = production_allocations(&fixture, &unsigned_64, &vector, false);
+    allocated.add(rust_declaration, "WrongRootDeclaration");
+    assert!(matches!(
+        fixture.codec.emit(&wrong_root, &allocated),
+        Err(Error::NonUniversalIdentity {
+            position: "newtype name",
+            found: VocabularyRoot::Rust,
+        })
+    ));
 }
 
 #[test]

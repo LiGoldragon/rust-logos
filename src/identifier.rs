@@ -1,16 +1,97 @@
-//! Opaque Rust emitted-name projections.
+//! Rust emitted-name encoding and fixture projections.
 //!
-//! No rule here maps an encoded-ID chain to text. The caller supplies a token
-//! already associated with one complete Universal identity; this module only
-//! validates the token and preserves that association.
+//! Production names are computed from complete encoded-ID chains. Fixture
+//! projections remain isolated here so the earlier slice witness stays useful
+//! without becoming a production naming authority.
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use name_table::Name;
+use name_table::{LocalEncodedId, Name};
 use signal_sema_translator::{VocabularyEncodedId, VocabularyRoot};
 use structural_codec::EncodedNameResolver;
 
-use crate::{Error, RustIdentifierRefusal};
+use crate::{EncodedIdCodecRefusal, Error, RustIdentifierRefusal};
+
+/// Version byte at the front of the packed encoded-ID payload.
+pub const ENCODED_ID_FORMAT_VERSION: u8 = 1;
+
+/// Multibase discriminator for Base58BTC.
+pub const BASE58BTC_MULTIBASE_PREFIX: char = 'z';
+
+/// Canonical production codec for root-fronted encoded-ID chains.
+///
+/// The payload is the format version, the explicit production root tag, then
+/// every table-local `u16` in big-endian order. Base58BTC preserves the exact
+/// bytes while using only Rust identifier continuation characters. Its
+/// multibase `z` prefix also guarantees a valid non-keyword leading character.
+pub struct RustEncodedIdCodec;
+
+impl RustEncodedIdCodec {
+    /// Compute the Rust identifier for one complete durable identity.
+    pub fn encode(encoded_id: &VocabularyEncodedId) -> String {
+        let mut payload = Vec::with_capacity(2 + encoded_id.chain().len() * 2);
+        payload.push(ENCODED_ID_FORMAT_VERSION);
+        payload.push(encoded_id.root_variant().tag());
+        for local in encoded_id.chain() {
+            payload.extend_from_slice(&local.value().to_be_bytes());
+        }
+        let mut token = String::from(BASE58BTC_MULTIBASE_PREFIX);
+        token.push_str(&bs58::encode(payload).into_string());
+        token
+    }
+
+    /// Recover the complete durable identity from one canonical Rust token.
+    pub fn decode(token: &str) -> Result<VocabularyEncodedId, EncodedIdCodecRefusal> {
+        let mut characters = token.chars();
+        let Some(prefix) = characters.next() else {
+            return Err(EncodedIdCodecRefusal::MissingMultibasePrefix);
+        };
+        if prefix != BASE58BTC_MULTIBASE_PREFIX {
+            return Err(EncodedIdCodecRefusal::WrongMultibasePrefix { found: prefix });
+        }
+        let body = characters.as_str();
+        if body.is_empty() {
+            return Err(EncodedIdCodecRefusal::MalformedBase58);
+        }
+        let payload = bs58::decode(body)
+            .into_vec()
+            .map_err(|_| EncodedIdCodecRefusal::MalformedBase58)?;
+        if body.starts_with('1') || bs58::encode(&payload).into_string() != body {
+            return Err(EncodedIdCodecRefusal::NonCanonicalBase58);
+        }
+        let Some(&version) = payload.first() else {
+            return Err(EncodedIdCodecRefusal::MalformedBase58);
+        };
+        if version != ENCODED_ID_FORMAT_VERSION {
+            return Err(EncodedIdCodecRefusal::UnsupportedFormatVersion { found: version });
+        }
+        let Some(&root_tag) = payload.get(1) else {
+            return Err(EncodedIdCodecRefusal::InvalidPayloadLength {
+                found: payload.len(),
+            });
+        };
+        let root = VocabularyRoot::try_from(root_tag)
+            .map_err(|_| EncodedIdCodecRefusal::UnsupportedRoot { found: root_tag })?;
+        let chain_bytes = &payload[2..];
+        if chain_bytes.is_empty() {
+            return Err(EncodedIdCodecRefusal::EmptyChain);
+        }
+        if chain_bytes.len() % 2 != 0 {
+            return Err(EncodedIdCodecRefusal::InvalidPayloadParity {
+                found: payload.len(),
+            });
+        }
+        let chain = chain_bytes
+            .chunks_exact(2)
+            .map(|bytes| LocalEncodedId::new(u16::from_be_bytes([bytes[0], bytes[1]])))
+            .collect();
+        VocabularyEncodedId::new(root, chain).map_err(|_| EncodedIdCodecRefusal::EmptyChain)
+    }
+
+    pub(crate) fn encode_name(encoded_id: &VocabularyEncodedId) -> Name {
+        Name::new(Self::encode(encoded_id))
+    }
+}
 
 /// A fixture-only rustc-safe opaque token in the conservative ASCII subset.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]

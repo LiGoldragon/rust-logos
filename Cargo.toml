@@ -1,6 +1,6 @@
 [package]
 name         = "rust-logos"
-version      = "0.4.0"
+version      = "0.5.0"
 autotests    = false
 edition      = "2024"
 rust-version = "1.85"
@@ -23,6 +23,7 @@ name-table             = { git = "https://github.com/LiGoldragon/name-table.git"
 raw-discovery          = { git = "https://github.com/LiGoldragon/raw-discovery.git", rev = "7290f65bbb5e7825ab2ca58340631d154d69d110" }
 signal-sema-translator = { git = "https://github.com/LiGoldragon/signal-sema-translator.git", rev = "8c504ba7aa8dbdc5edf7daadbb862bbdaa5613be" }
 structural-codec       = { git = "https://github.com/LiGoldragon/structural-codec.git", rev = "5c11e1fb7f58444cd860207803d8f705e7415d71" }
+bs58                   = "0.5"
 rkyv                   = { version = "0.8", default-features = false, features = ["std", "bytecheck", "little_endian", "pointer_width_32", "unaligned"] }
 thiserror              = "2"
 

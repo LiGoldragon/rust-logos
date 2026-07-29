@@ -1,5 +1,7 @@
 //! Rust TextualForm orchestration over complete typed fixture records.
 
+use std::collections::BTreeMap;
+
 use core_logos::{
     WholeLogos, WholeLogosEnumeration, WholeLogosItem, WholeLogosNewtype, WholeLogosTupleFields,
     WholeLogosTypeApplication, WholeLogosTypeReference, WholeLogosVariant,
@@ -23,7 +25,7 @@ use crate::fixture_vocabulary::{
     TupleFieldTerminator, TupleFieldType, TupleFieldVisibility, VariantBody, VariantFields,
     VariantName, VariantRoot, VariantTerminator, constructor_for, ordered_sequence_value,
 };
-use crate::{Error, FixtureRustNameProjectionTable};
+use crate::{Error, FixtureRustNameProjectionTable, RustEncodedIdCodec};
 
 /// Bidirectional Rust view for the bounded fixture breadth.
 pub struct RustLogos {
@@ -119,13 +121,42 @@ impl RustLogos {
         projections: &FixtureRustNameProjectionTable,
     ) -> Result<String, Error> {
         self.validate_projections(logos, projections)?;
-        let evaluator = StructuralEvaluator::<VocabularyRoot, FixtureRustRule>::new(
-            self.vocabulary.structuretree(),
-        )?;
         let resolver = FixtureResolver {
             vocabulary: &self.vocabulary,
             projections,
         };
+        self.emit_with_resolver(logos, &resolver)
+    }
+
+    /// Emit production Rust names directly from complete encoded-ID chains.
+    ///
+    /// `allocated` is the owning naming boundary's verified current view.
+    /// Universal identities are encoded without reading their spelling.
+    /// Rust-root identities keep the immutable spelling resolved by that view.
+    /// Every identity is validated and every generated name is prepared before
+    /// structural emission begins.
+    pub fn emit<Allocated: EncodedNameResolver<VocabularyRoot> + ?Sized>(
+        &self,
+        logos: &WholeLogos,
+        allocated: &Allocated,
+    ) -> Result<String, Error> {
+        let generated = generated_names(logos, allocated)?;
+        let resolver = ProductionResolver {
+            vocabulary: &self.vocabulary,
+            allocated,
+            generated,
+        };
+        self.emit_with_resolver(logos, &resolver)
+    }
+
+    fn emit_with_resolver<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
+        &self,
+        logos: &WholeLogos,
+        resolver: &Resolver,
+    ) -> Result<String, Error> {
+        let evaluator = StructuralEvaluator::<VocabularyRoot, FixtureRustRule>::new(
+            self.vocabulary.structuretree(),
+        )?;
         let mut items = Vec::with_capacity(logos.items().len());
         for item in logos.items() {
             let (expected, value) = match item {
@@ -138,7 +169,7 @@ impl RustLogos {
                     self.reflect_enumeration(enumeration)?,
                 ),
             };
-            items.push(evaluator.encode_text(expected, &value, &resolver)?);
+            items.push(evaluator.encode_text(expected, &value, resolver)?);
         }
         Ok(RenderedFixtureDocument(items).to_string())
     }
@@ -518,6 +549,93 @@ fn require_projection(
     Ok(())
 }
 
+fn generated_names<Allocated: EncodedNameResolver<VocabularyRoot> + ?Sized>(
+    logos: &WholeLogos,
+    allocated: &Allocated,
+) -> Result<BTreeMap<VocabularyEncodedId, Name>, Error> {
+    let mut generated = BTreeMap::new();
+    for item in logos.items() {
+        match item {
+            WholeLogosItem::Newtype(newtype) => {
+                insert_generated("newtype name", newtype.name(), allocated, &mut generated)?;
+                validate_production_reference(newtype.wrapped(), allocated, &mut generated)?;
+            }
+            WholeLogosItem::Enumeration(enumeration) => {
+                insert_generated(
+                    "enumeration name",
+                    enumeration.name(),
+                    allocated,
+                    &mut generated,
+                )?;
+                for variant in enumeration.variants() {
+                    insert_generated("variant name", variant.name(), allocated, &mut generated)?;
+                    if let WholeLogosVariantPayload::Tuple(fields) = variant.payload() {
+                        for field in fields.fields() {
+                            validate_production_reference(field, allocated, &mut generated)?;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(generated)
+}
+
+fn validate_production_reference<Allocated: EncodedNameResolver<VocabularyRoot> + ?Sized>(
+    reference: &WholeLogosTypeReference,
+    allocated: &Allocated,
+    generated: &mut BTreeMap<VocabularyEncodedId, Name>,
+) -> Result<(), Error> {
+    match reference {
+        WholeLogosTypeReference::Identity(encoded_id) => {
+            validate_allocated("type reference", encoded_id, allocated)?;
+            if encoded_id.root_variant() == &VocabularyRoot::Universal {
+                generated
+                    .entry(encoded_id.clone())
+                    .or_insert_with(|| RustEncodedIdCodec::encode_name(encoded_id));
+            }
+            Ok(())
+        }
+        WholeLogosTypeReference::Application(application) => {
+            validate_allocated("application head", application.head(), allocated)?;
+            if application.head().root_variant() == &VocabularyRoot::Universal {
+                generated
+                    .entry(application.head().clone())
+                    .or_insert_with(|| RustEncodedIdCodec::encode_name(application.head()));
+            }
+            validate_production_reference(application.payload(), allocated, generated)
+        }
+    }
+}
+
+fn insert_generated<Allocated: EncodedNameResolver<VocabularyRoot> + ?Sized>(
+    position: &'static str,
+    encoded_id: &VocabularyEncodedId,
+    allocated: &Allocated,
+    generated: &mut BTreeMap<VocabularyEncodedId, Name>,
+) -> Result<(), Error> {
+    validate_universal(position, encoded_id)?;
+    validate_allocated(position, encoded_id, allocated)?;
+    generated
+        .entry(encoded_id.clone())
+        .or_insert_with(|| RustEncodedIdCodec::encode_name(encoded_id));
+    Ok(())
+}
+
+fn validate_allocated<Allocated: EncodedNameResolver<VocabularyRoot> + ?Sized>(
+    position: &'static str,
+    encoded_id: &VocabularyEncodedId,
+    allocated: &Allocated,
+) -> Result<(), Error> {
+    if allocated.resolve(encoded_id).is_none() {
+        return Err(Error::UnallocatedEncodedIdentity {
+            position,
+            encoded_id: encoded_id.clone(),
+        });
+    }
+    Ok(())
+}
+
 fn validate_universal(
     position: &'static str,
     encoded_id: &VocabularyEncodedId,
@@ -636,6 +754,25 @@ impl EncodedNameResolver<VocabularyRoot> for FixtureResolver<'_> {
         self.vocabulary
             .resolve(encoded_id)
             .or_else(|| self.projections.resolve(encoded_id))
+    }
+}
+
+struct ProductionResolver<'a, Allocated: ?Sized> {
+    vocabulary: &'a FixtureRustVocabulary,
+    allocated: &'a Allocated,
+    generated: BTreeMap<VocabularyEncodedId, Name>,
+}
+
+impl<Allocated: EncodedNameResolver<VocabularyRoot> + ?Sized> EncodedNameResolver<VocabularyRoot>
+    for ProductionResolver<'_, Allocated>
+{
+    fn resolve(&self, encoded_id: &VocabularyEncodedId) -> Option<&Name> {
+        self.vocabulary
+            .resolve(encoded_id)
+            .or_else(|| match encoded_id.root_variant() {
+                VocabularyRoot::Universal => self.generated.get(encoded_id),
+                VocabularyRoot::Rust => self.allocated.resolve(encoded_id),
+            })
     }
 }
 

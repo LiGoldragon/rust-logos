@@ -4,6 +4,38 @@ use raw_discovery::{BlockDiscoveryError, SourceBound};
 use signal_sema_translator::{VocabularyEncodedId, VocabularyRoot};
 use structural_codec::{AuthoringError, DecodeError, EncodeError, TableError};
 
+/// Why a textual encoded-ID token is not the canonical supported format.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum EncodedIdCodecRefusal {
+    /// The token is empty and therefore carries no multibase discriminator.
+    #[error("encoded-ID token has no multibase prefix")]
+    MissingMultibasePrefix,
+    /// The token selects another multibase or is ordinary text.
+    #[error("encoded-ID token uses multibase prefix {found:?}, expected 'z'")]
+    WrongMultibasePrefix { found: char },
+    /// The Base58BTC body is empty or contains a character outside its alphabet.
+    #[error("encoded-ID token has malformed Base58BTC data")]
+    MalformedBase58,
+    /// The Base58BTC body is not the sole canonical rendering of its bytes.
+    #[error("encoded-ID token is not canonical Base58BTC")]
+    NonCanonicalBase58,
+    /// The packed payload selects a format version this build cannot interpret.
+    #[error("encoded-ID format version {found} is unsupported")]
+    UnsupportedFormatVersion { found: u8 },
+    /// The packed payload contains no known production root tag.
+    #[error("encoded-ID root tag {found} is unsupported")]
+    UnsupportedRoot { found: u8 },
+    /// The packed payload cannot carry both its version and root.
+    #[error("encoded-ID payload length {found} cannot carry its header")]
+    InvalidPayloadLength { found: usize },
+    /// Bytes after the header cannot be divided into complete big-endian `u16`s.
+    #[error("encoded-ID payload length {found} leaves a partial local ID")]
+    InvalidPayloadParity { found: usize },
+    /// The payload addresses a table rather than a durable entry.
+    #[error("encoded-ID payload has an empty local-ID chain")]
+    EmptyChain,
+}
+
 /// Why an opaque emitted-name token is not a Rust identifier in the supported
 /// structural subset.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -88,6 +120,16 @@ pub enum Error {
     #[error("encoded identity {encoded_id:?} has no opaque Rust emitted-name projection")]
     MissingProjection {
         /// The unresolved identity.
+        encoded_id: VocabularyEncodedId,
+    },
+
+    /// The owning naming boundary does not currently allocate an emitted
+    /// identity.
+    #[error("{position} uses unallocated encoded identity {encoded_id:?}")]
+    UnallocatedEncodedIdentity {
+        /// The typed Logos position being validated.
+        position: &'static str,
+        /// The complete unallocated identity.
         encoded_id: VocabularyEncodedId,
     },
 

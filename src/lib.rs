@@ -9,9 +9,10 @@
 //! records through `structural-codec`'s shared evaluator. Emission reflects the
 //! same complete item records.
 //!
-//! Universal encoded-ID chains never acquire a textual encoding here. The
-//! caller supplies a checked rustc-safe opaque token for each complete chain,
-//! and [`FixtureRustNameProjectionTable`] preserves that fixture association.
+//! Production emission names every Universal identity by the canonical
+//! Base58BTC textual encoding of its complete root-fronted encoded-ID chain.
+//! Rust-owned vocabulary keeps its immutable Rust spelling. The older
+//! caller-projected surface remains available only for fixture witnesses.
 
 mod codec;
 mod error;
@@ -19,8 +20,11 @@ mod fixture_vocabulary;
 mod identifier;
 
 pub use codec::RustLogos;
-pub use error::{Error, RustIdentifierRefusal};
+pub use error::{EncodedIdCodecRefusal, Error, RustIdentifierRefusal};
 pub use fixture_vocabulary::{
     FixtureRustRule, FixtureRustVocabulary, FixtureRustVocabularyIds, ReferencedTypePosition,
 };
-pub use identifier::{FixtureRustEmittedIdentifier, FixtureRustNameProjectionTable};
+pub use identifier::{
+    BASE58BTC_MULTIBASE_PREFIX, ENCODED_ID_FORMAT_VERSION, FixtureRustEmittedIdentifier,
+    FixtureRustNameProjectionTable, RustEncodedIdCodec,
+};
