@@ -1,6 +1,6 @@
 [package]
 name         = "rust-logos"
-version      = "0.12.0"
+version      = "0.13.0"
 autotests    = false
 edition      = "2024"
 rust-version = "1.85"
@@ -18,12 +18,12 @@ name = "slice_one"
 path = "tests/slice_one.rs"
 
 [dependencies]
-core-logos             = { git = "https://github.com/LiGoldragon/core-logos.git", rev = "6fd6249e50fd62f3881168a9d401bd93e6773bf1" }
+core-logos             = { git = "https://github.com/LiGoldragon/core-logos.git", rev = "148699a173baa7207a90e61656cc2160af446bdc" }
 name-table             = { git = "https://github.com/LiGoldragon/name-table.git", rev = "50cb4bb53ae2dc4f2516f6912be328ef98ae49f8" }
 legacy-name-table      = { package = "name-table", git = "https://github.com/LiGoldragon/name-table.git", rev = "196610e2907687dcb8dbd0d2dfaafe4aefd9fa27" }
 raw-discovery          = { git = "https://github.com/LiGoldragon/raw-discovery.git", rev = "7290f65bbb5e7825ab2ca58340631d154d69d110" }
 signal-sema-translator = { git = "https://github.com/LiGoldragon/signal-sema-translator.git", rev = "dd8e7b5656833f640e49c099ab3be6f09881f9c5" }
-structural-codec       = { git = "https://github.com/LiGoldragon/structural-codec.git", rev = "a09534f527e7b34e573f8ab58ac3cee8b17ddb0a" }
+structural-codec       = { git = "https://github.com/LiGoldragon/structural-codec.git", rev = "f7a0ff1b63cd54ca5353b1a84476704221041b41" }
 bs58                   = "0.5"
 prettyplease           = "0.2"
 proc-macro2            = "1"
