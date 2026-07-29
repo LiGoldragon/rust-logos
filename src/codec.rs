@@ -737,6 +737,12 @@ fn offset_decode_error(
             role,
             bound: offset_bound(bound),
         },
+        DecodeError::SequenceRepetitionBoundary { role, refusal } => {
+            DecodeError::SequenceRepetitionBoundary {
+                role,
+                refusal: Box::new(offset_decode_error(*refusal, source, offset)),
+            }
+        }
         other => other,
     }
 }

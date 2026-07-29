@@ -678,6 +678,16 @@ fn production_emission_refuses_unallocated_or_wrong_root_declarations_without_so
     ));
 }
 
+fn unresolved_reference_at(error: &DecodeError<VocabularyRoot>, expected: SourceBound) -> bool {
+    match error {
+        DecodeError::UnresolvedReference { bound } => *bound == expected,
+        DecodeError::SequenceRepetitionBoundary { refusal, .. } => {
+            unresolved_reference_at(refusal, expected)
+        }
+        _ => false,
+    }
+}
+
 #[test]
 fn declaration_and_reference_roles_are_distinct_and_lookup_only() {
     let fixture = fixture();
@@ -691,7 +701,7 @@ fn declaration_and_reference_roles_are_distinct_and_lookup_only() {
 
     assert!(matches!(
         fixture.codec.decode_fixture(SOURCE, &missing),
-        Err(Error::Decode(DecodeError::UnresolvedReference { bound })) if bound == missing_bound
+        Err(Error::Decode(error)) if unresolved_reference_at(&error, missing_bound)
     ));
     assert_eq!(missing.declarations, declarations_before);
     assert_eq!(missing.references, references_before);
