@@ -18,6 +18,7 @@ mod codec;
 mod error;
 mod fixture_vocabulary;
 mod identifier;
+mod legacy_project;
 
 pub use codec::RustLogos;
 pub use error::{EncodedIdCodecRefusal, Error, RustIdentifierRefusal};
@@ -28,3 +29,4 @@ pub use identifier::{
     BASE58BTC_MULTIBASE_PREFIX, ENCODED_ID_FORMAT_VERSION, FixtureRustEmittedIdentifier,
     FixtureRustNameProjectionTable, RustEncodedIdCodec,
 };
+pub use legacy_project::RustSource;

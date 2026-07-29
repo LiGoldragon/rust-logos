@@ -55,6 +55,21 @@ pub enum RustIdentifierRefusal {
 /// A typed failure while sealing or evaluating the Slice One Rust vocabulary.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    /// A legacy Logos item carried an identifier absent from its sibling table.
+    #[error("legacy Logos name projection failed: {0}")]
+    LegacyName(#[from] legacy_name_table::NameTableError),
+
+    /// The fixed-prelude compatibility projector received another item shape.
+    #[error("fixed-prelude projector does not support {construct}")]
+    LegacyProjectionUnsupported {
+        /// The unsupported encoded item or nested value.
+        construct: &'static str,
+    },
+
+    /// The fixed-prelude token structure did not form a Rust file.
+    #[error("fixed-prelude token structure did not parse as Rust: {0}")]
+    LegacyProjection(String),
+
     /// A caller supplied a Rust-owned vocabulary position under another root.
     #[error("{position} must use the Rust vocabulary root, found {found:?}")]
     NonRustVocabulary {
