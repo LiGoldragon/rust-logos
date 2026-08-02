@@ -116,8 +116,8 @@ dependencies = [
 
 [[package]]
 name = "core-logos"
-version = "0.21.0"
-source = "git+https://github.com/LiGoldragon/core-logos.git?rev=23ca4b0d80cd3b9505954bdccce5a525bcd6b28a#23ca4b0d80cd3b9505954bdccce5a525bcd6b28a"
+version = "0.22.0"
+source = "git+https://github.com/LiGoldragon/core-logos.git?rev=bd5155f51ee5301b78cd8b3c070a98e2267e7477#bd5155f51ee5301b78cd8b3c070a98e2267e7477"
 dependencies = [
  "content-identity 0.3.0",
  "content-identity 0.4.0",
@@ -385,7 +385,7 @@ dependencies = [
 
 [[package]]
 name = "rust-logos"
-version = "0.21.0"
+version = "0.22.0"
 dependencies = [
  "bs58",
  "core-logos",

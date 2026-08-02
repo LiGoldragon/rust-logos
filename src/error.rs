@@ -164,6 +164,13 @@ pub enum Error {
     #[error("enumeration tuple fields must have private visibility")]
     UnsupportedVariantFieldVisibility,
 
+    /// An enumeration tuple payload did not carry exactly one field.
+    #[error("enumeration tuple payload requires exactly one field, found {found}")]
+    UnsupportedVariantTupleArity {
+        /// Refused positional-field count.
+        found: usize,
+    },
+
     /// A sealed typed record returned a value under a different role or value
     /// kind than its record declares.
     #[error("shared evaluator did not return the declared {position} typed position")]

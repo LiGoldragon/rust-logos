@@ -5,9 +5,11 @@ use std::fs;
 use std::process::Command;
 
 use core_logos::{
-    WholeLogos, WholeLogosAssociatedTypeBinding, WholeLogosItem, WholeLogosStruct,
-    WholeLogosTraitDef, WholeLogosTraitImpl, WholeLogosTraitMethod, WholeLogosTypeApplication,
-    WholeLogosTypeReference, WholeLogosVisibility,
+    WholeLogos, WholeLogosAssociatedTypeBinding, WholeLogosEnumeration, WholeLogosItem,
+    WholeLogosNewtype, WholeLogosStruct, WholeLogosTraitDef, WholeLogosTraitImpl,
+    WholeLogosTraitMethod, WholeLogosTupleFields, WholeLogosTypeApplication,
+    WholeLogosTypeAttributes, WholeLogosTypeReference, WholeLogosVariant, WholeLogosVariantPayload,
+    WholeLogosVisibility,
 };
 use name_table::{LocalEncodedId, Name};
 use rust_logos::{
@@ -216,4 +218,68 @@ fn struct_trait_and_associated_type_impl_project_to_compiling_rust() {
         String::from_utf8_lossy(&output.stderr)
     );
     fs::remove_dir_all(&temporary).expect("remove scratch crate");
+}
+
+#[test]
+fn wire_policy_projects_the_existing_interface_attribute_preamble() {
+    let wrapped = universal(40);
+    let newtype_name = universal(41);
+    let struct_name = universal(42);
+    let enumeration_name = universal(43);
+    let variant_name = universal(44);
+    let wire = WholeLogosTypeAttributes::Wire;
+    let logos = WholeLogos::new(vec![
+        WholeLogosItem::Newtype(
+            WholeLogosNewtype::new(
+                WholeLogosVisibility::Public,
+                newtype_name.clone(),
+                WholeLogosVisibility::Private,
+                reference(&wrapped),
+            )
+            .with_attributes(wire),
+        ),
+        WholeLogosItem::Struct(
+            WholeLogosStruct::new(
+                WholeLogosVisibility::Public,
+                struct_name.clone(),
+                vec![reference(&wrapped)],
+            )
+            .with_attributes(wire),
+        ),
+        WholeLogosItem::Enumeration(
+            WholeLogosEnumeration::new(
+                WholeLogosVisibility::Public,
+                enumeration_name.clone(),
+                vec![WholeLogosVariant::new(
+                    variant_name.clone(),
+                    WholeLogosVariantPayload::Tuple(
+                        WholeLogosTupleFields::new(vec![reference(&wrapped)])
+                            .expect("single wire payload"),
+                    ),
+                )],
+            )
+            .with_attributes(wire),
+        ),
+    ]);
+    let emitted = rust_logos()
+        .emit_fixture(
+            &logos,
+            &projections(&[
+                (wrapped, "Payload"),
+                (newtype_name, "WireNewtype"),
+                (struct_name, "WireStruct"),
+                (enumeration_name, "WireEnumeration"),
+                (variant_name, "Batch"),
+            ]),
+        )
+        .expect("project typed wire policy");
+
+    assert_eq!(emitted.matches("#[rustfmt::skip]").count(), 3, "{emitted}");
+    assert_eq!(emitted.matches("rkyv::Archive").count(), 3, "{emitted}");
+    assert_eq!(
+        emitted.matches("nota::NotaDecodeTraced").count(),
+        3,
+        "{emitted}"
+    );
+    assert!(emitted.contains("Batch(Payload)"), "{emitted}");
 }

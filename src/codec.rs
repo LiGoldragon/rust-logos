@@ -6,7 +6,8 @@ use core_logos::{
     WholeLogos, WholeLogosAssociatedTypeBinding, WholeLogosEnumeration, WholeLogosItem,
     WholeLogosNewtype, WholeLogosStruct, WholeLogosTraitDef, WholeLogosTraitImpl,
     WholeLogosTraitMethod, WholeLogosTupleFields, WholeLogosTypeApplication,
-    WholeLogosTypeReference, WholeLogosVariant, WholeLogosVariantPayload, WholeLogosVisibility,
+    WholeLogosTypeAttributes, WholeLogosTypeReference, WholeLogosVariant, WholeLogosVariantPayload,
+    WholeLogosVisibility,
 };
 use name_table::Name;
 use raw_discovery::{
@@ -161,12 +162,22 @@ impl RustLogos {
         let mut items = Vec::with_capacity(logos.items().len());
         for item in logos.items() {
             let rendered = match item {
+                WholeLogosItem::Newtype(newtype)
+                    if newtype.attributes() == WholeLogosTypeAttributes::Wire =>
+                {
+                    render_newtype(newtype, resolver)?
+                }
                 WholeLogosItem::Newtype(newtype) => evaluator.encode_text(
                     self.vocabulary.ids().newtype_item(),
                     &self.reflect_newtype(newtype)?,
                     resolver,
                 )?,
                 WholeLogosItem::Struct(structure) => render_struct(structure, resolver)?,
+                WholeLogosItem::Enumeration(enumeration)
+                    if enumeration.attributes() == WholeLogosTypeAttributes::Wire =>
+                {
+                    render_enumeration(enumeration, resolver)?
+                }
                 WholeLogosItem::Enumeration(enumeration) => evaluator.encode_text(
                     self.vocabulary.ids().enumeration_item(),
                     &self.reflect_enumeration(enumeration)?,
@@ -315,10 +326,11 @@ impl RustLogos {
                 }
                 fields.push(reference);
             }
-            let fields =
-                WholeLogosTupleFields::new(fields).map_err(|_| Error::TypedPositionMismatch {
-                    position: "non-empty variant fields",
-                })?;
+            let fields = WholeLogosTupleFields::new(fields).map_err(|error| {
+                Error::UnsupportedVariantTupleArity {
+                    found: error.found(),
+                }
+            })?;
             return Ok(WholeLogosVariant::new(
                 name,
                 WholeLogosVariantPayload::Tuple(fields),
@@ -557,6 +569,7 @@ fn render_struct<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
     structure: &WholeLogosStruct,
     resolver: &Resolver,
 ) -> Result<String, Error> {
+    let attributes = render_type_attributes(structure.attributes());
     let visibility = render_visibility(structure.visibility());
     let name = resolved_identifier("struct name", structure.name(), resolver)?;
     let fields = structure
@@ -564,12 +577,87 @@ fn render_struct<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
         .iter()
         .enumerate()
         .map(|(index, reference)| {
+            // [assumption primary-vq6.2-A1 — generated positional field spelling]
+            // No seated ruling assigns names to positional struct fields. `field_N`
+            // is an assembly-local, order-derived spelling and allocates no identity.
             let name = positional_identifier("field_", index);
             let field_type = render_reference(reference, resolver)?;
             Ok(quote::quote!(pub #name: #field_type))
         })
         .collect::<Result<Vec<_>, Error>>()?;
-    canonical_item(quote::quote!(#visibility struct #name { #(#fields,)* }))
+    canonical_item(quote::quote!(#attributes #visibility struct #name { #(#fields,)* }))
+}
+
+fn render_newtype<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
+    newtype: &WholeLogosNewtype,
+    resolver: &Resolver,
+) -> Result<String, Error> {
+    let attributes = render_type_attributes(newtype.attributes());
+    let visibility = render_visibility(newtype.visibility());
+    let name = resolved_identifier("newtype name", newtype.name(), resolver)?;
+    let wrapped_visibility = render_visibility(newtype.wrapped_visibility());
+    let wrapped = render_reference(newtype.wrapped(), resolver)?;
+    canonical_item(quote::quote!(
+        #attributes #visibility struct #name(#wrapped_visibility #wrapped);
+    ))
+}
+
+fn render_enumeration<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
+    enumeration: &WholeLogosEnumeration,
+    resolver: &Resolver,
+) -> Result<String, Error> {
+    let attributes = render_type_attributes(enumeration.attributes());
+    let visibility = render_visibility(enumeration.visibility());
+    let name = resolved_identifier("enumeration name", enumeration.name(), resolver)?;
+    let variants = enumeration
+        .variants()
+        .iter()
+        .map(|variant| render_variant(variant, resolver))
+        .collect::<Result<Vec<_>, Error>>()?;
+    canonical_item(quote::quote!(
+        #attributes #visibility enum #name { #(#variants,)* }
+    ))
+}
+
+fn render_variant<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
+    variant: &WholeLogosVariant,
+    resolver: &Resolver,
+) -> Result<proc_macro2::TokenStream, Error> {
+    let name = resolved_identifier("variant name", variant.name(), resolver)?;
+    match variant.payload() {
+        WholeLogosVariantPayload::Unit => Ok(quote::quote!(#name)),
+        WholeLogosVariantPayload::Tuple(fields) => {
+            let [field] = fields.fields() else {
+                return Err(Error::UnsupportedVariantTupleArity {
+                    found: fields.fields().len(),
+                });
+            };
+            let field = render_reference(field, resolver)?;
+            Ok(quote::quote!(#name(#field)))
+        }
+    }
+}
+
+fn render_type_attributes(attributes: WholeLogosTypeAttributes) -> proc_macro2::TokenStream {
+    match attributes {
+        WholeLogosTypeAttributes::Plain => quote::quote!(),
+        WholeLogosTypeAttributes::Wire => quote::quote!(
+            #[rustfmt::skip]
+            #[cfg_attr(
+                feature = "nota-text",
+                derive(nota::NotaDecode, nota::NotaDecodeTraced, nota::NotaEncode)
+            )]
+            #[derive(
+                rkyv::Archive,
+                rkyv::Serialize,
+                rkyv::Deserialize,
+                Clone,
+                Debug,
+                PartialEq,
+                Eq
+            )]
+        ),
+    }
 }
 
 fn render_trait_definition<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(

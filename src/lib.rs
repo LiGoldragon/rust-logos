@@ -2,9 +2,10 @@
 //!
 //! Structural Rust decoding and emission for Logos.
 //!
-//! The bounded fixture slice supports ordered, attribute-free tuple newtypes,
-//! structs, non-generic enumerations, behavior traits, and associated-type trait
-//! implementations. Pass one uses
+//! The bounded fixture slice supports ordered tuple newtypes, structs,
+//! non-generic enumerations, behavior traits, and associated-type trait
+//! implementations. Whole Logos type declarations choose either plain emission
+//! or the canonical Interface wire preamble. Pass one uses
 //! `raw-discovery`'s cue-to-termination model, with strings and comments opaque
 //! and every block source-bounded. Pass two evaluates fully typed Rust position
 //! records through `structural-codec`'s shared evaluator. Emission reflects the

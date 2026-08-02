@@ -21,7 +21,8 @@ use structural_codec::{
     ResolvedReference,
 };
 
-const SOURCE: &str = "pub struct Id16 ( Vec < u64 > , ) ;\npub enum Id17 { Id171 , Id172 ( u64 , Vec < u64 > , ) , }\n";
+const SOURCE: &str =
+    "pub struct Id16 ( Vec < u64 > , ) ;\npub enum Id17 { Id171 , Id172 ( Vec < u64 > , ) , }\n";
 
 fn encoded(root: VocabularyRoot, chain: &[u16]) -> VocabularyEncodedId {
     VocabularyEncodedId::new(
@@ -203,7 +204,7 @@ fn bindings(source: &str, fixture: &Fixture) -> Bindings {
     for occurrence in 0..2 {
         bindings.reference(source, "Vec", occurrence, fixture.vector.clone());
     }
-    for occurrence in 0..3 {
+    for occurrence in 0..2 {
         bindings.reference(source, "u64", occurrence, fixture.integer.clone());
     }
     bindings
@@ -258,14 +259,13 @@ fn expected_logos(fixture: &Fixture) -> WholeLogos {
                 WholeLogosVariant::new(
                     fixture.payload.clone(),
                     WholeLogosVariantPayload::Tuple(
-                        WholeLogosTupleFields::new(vec![
-                            WholeLogosTypeReference::Identity(fixture.integer.clone()),
-                            WholeLogosTypeReference::Application(WholeLogosTypeApplication::new(
+                        WholeLogosTupleFields::new(vec![WholeLogosTypeReference::Application(
+                            WholeLogosTypeApplication::new(
                                 fixture.vector.clone(),
                                 WholeLogosTypeReference::Identity(fixture.integer.clone()),
-                            )),
-                        ])
-                        .expect("non-empty tuple"),
+                            ),
+                        )])
+                        .expect("single-field tuple"),
                     ),
                 ),
             ],
@@ -295,16 +295,13 @@ fn production_logos(fixture: &Fixture) -> (WholeLogos, VocabularyEncodedId, Voca
                     WholeLogosVariant::new(
                         fixture.payload.clone(),
                         WholeLogosVariantPayload::Tuple(
-                            WholeLogosTupleFields::new(vec![
-                                WholeLogosTypeReference::Identity(unsigned_64.clone()),
-                                WholeLogosTypeReference::Application(
-                                    WholeLogosTypeApplication::new(
-                                        vector.clone(),
-                                        WholeLogosTypeReference::Identity(unsigned_64.clone()),
-                                    ),
+                            WholeLogosTupleFields::new(vec![WholeLogosTypeReference::Application(
+                                WholeLogosTypeApplication::new(
+                                    vector.clone(),
+                                    WholeLogosTypeReference::Identity(unsigned_64.clone()),
                                 ),
-                            ])
-                            .expect("non-empty production tuple"),
+                            )])
+                            .expect("single-field production tuple"),
                         ),
                     ),
                 ],
@@ -358,7 +355,7 @@ fn production_bindings(
     for occurrence in 0..2 {
         bindings.reference(source, "Vec", occurrence, vector.clone());
     }
-    for occurrence in 0..3 {
+    for occurrence in 0..2 {
         bindings.reference(source, "u64", occurrence, unsigned_64.clone());
     }
     bindings
@@ -590,7 +587,7 @@ fn structurally_emitted_production_names_compile_and_run() {
     fs::write(
         temporary.join("src/main.rs"),
         format!(
-            "{emitted}\nfn score(value: {enumeration}) -> usize {{ match value {{ {enumeration}::{unit} => 1, {enumeration}::{payload}(number, values) => number as usize + values.len(), }} }}\nfn main() {{ let wrapped = {newtype}(vec![1, 2, 3]); assert_eq!(wrapped.0.len(), 3); assert_eq!(score({enumeration}::{unit}), 1); assert_eq!(score({enumeration}::{payload}(40, vec![1, 2])), 42); }}\n"
+            "{emitted}\nfn score(value: {enumeration}) -> usize {{ match value {{ {enumeration}::{unit} => 1, {enumeration}::{payload}(values) => values.len(), }} }}\nfn main() {{ let wrapped = {newtype}(vec![1, 2, 3]); assert_eq!(wrapped.0.len(), 3); assert_eq!(score({enumeration}::{unit}), 1); assert_eq!(score({enumeration}::{payload}(vec![40, 2])), 2); }}\n"
         ),
     )
     .expect("write production scratch program");
@@ -692,7 +689,7 @@ fn unresolved_reference_at(error: &DecodeError<VocabularyRoot>, expected: Source
 fn declaration_and_reference_roles_are_distinct_and_lookup_only() {
     let fixture = fixture();
     let mut missing = bindings(SOURCE, &fixture);
-    let missing_bound = bound(SOURCE, "u64", 2);
+    let missing_bound = bound(SOURCE, "u64", 1);
     missing
         .references
         .remove(&(missing_bound.start(), missing_bound.end()));
@@ -753,6 +750,23 @@ fn unsupported_fields_attributes_and_unclosed_enum_body_refuse() {
 }
 
 #[test]
+fn multi_field_tuple_variant_refuses_as_typed_input_without_rewriting() {
+    let fixture = fixture();
+    let source = "pub enum Id17 { Id172 ( u64 , Vec < u64 > , ) , }\n";
+    let mut source_bindings = Bindings::default();
+    source_bindings.declaration(source, "Id17", 0, fixture.enumeration.clone());
+    source_bindings.declaration(source, "Id172", 0, fixture.payload.clone());
+    source_bindings.reference(source, "u64", 0, fixture.integer.clone());
+    source_bindings.reference(source, "u64", 1, fixture.integer.clone());
+    source_bindings.reference(source, "Vec", 0, fixture.vector.clone());
+
+    assert!(matches!(
+        fixture.codec.decode_fixture(source, &source_bindings),
+        Err(Error::UnsupportedVariantTupleArity { found: 2 })
+    ));
+}
+
+#[test]
 fn fixture_projection_is_explicit_and_no_partial_source_is_returned() {
     let fixture = fixture();
     assert!(FixtureRustEmittedIdentifier::try_new("17.4").is_err());
@@ -799,7 +813,7 @@ fn structurally_emitted_fixture_compiles_and_runs_exhaustively_with_cargo() {
     fs::write(
         temporary.join("src/main.rs"),
         format!(
-            "{emitted}\nfn score(value: Id17) -> usize {{ match value {{ Id17::Id171 => 1, Id17::Id172(number, values) => number as usize + values.len(), }} }}\nfn main() {{ let wrapped = Id16(vec![1, 2, 3]); assert_eq!(wrapped.0.len(), 3); assert_eq!(score(Id17::Id171), 1); assert_eq!(score(Id17::Id172(40, vec![1, 2])), 42); }}\n"
+            "{emitted}\nfn score(value: Id17) -> usize {{ match value {{ Id17::Id171 => 1, Id17::Id172(values) => values.len(), }} }}\nfn main() {{ let wrapped = Id16(vec![1, 2, 3]); assert_eq!(wrapped.0.len(), 3); assert_eq!(score(Id17::Id171), 1); assert_eq!(score(Id17::Id172(vec![40, 2])), 2); }}\n"
         ),
     )
     .expect("write scratch program");
