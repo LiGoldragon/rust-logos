@@ -3,9 +3,10 @@
 use std::collections::BTreeMap;
 
 use core_logos::{
-    WholeLogos, WholeLogosEnumeration, WholeLogosItem, WholeLogosNewtype, WholeLogosTupleFields,
-    WholeLogosTypeApplication, WholeLogosTypeReference, WholeLogosVariant,
-    WholeLogosVariantPayload, WholeLogosVisibility,
+    WholeLogos, WholeLogosAssociatedTypeBinding, WholeLogosEnumeration, WholeLogosItem,
+    WholeLogosNewtype, WholeLogosStruct, WholeLogosTraitDef, WholeLogosTraitImpl,
+    WholeLogosTraitMethod, WholeLogosTupleFields, WholeLogosTypeApplication,
+    WholeLogosTypeReference, WholeLogosVariant, WholeLogosVariantPayload, WholeLogosVisibility,
 };
 use name_table::Name;
 use raw_discovery::{
@@ -159,17 +160,26 @@ impl RustLogos {
         )?;
         let mut items = Vec::with_capacity(logos.items().len());
         for item in logos.items() {
-            let (expected, value) = match item {
-                WholeLogosItem::Newtype(newtype) => (
+            let rendered = match item {
+                WholeLogosItem::Newtype(newtype) => evaluator.encode_text(
                     self.vocabulary.ids().newtype_item(),
-                    self.reflect_newtype(newtype)?,
-                ),
-                WholeLogosItem::Enumeration(enumeration) => (
+                    &self.reflect_newtype(newtype)?,
+                    resolver,
+                )?,
+                WholeLogosItem::Struct(structure) => render_struct(structure, resolver)?,
+                WholeLogosItem::Enumeration(enumeration) => evaluator.encode_text(
                     self.vocabulary.ids().enumeration_item(),
-                    self.reflect_enumeration(enumeration)?,
-                ),
+                    &self.reflect_enumeration(enumeration)?,
+                    resolver,
+                )?,
+                WholeLogosItem::TraitDef(trait_definition) => {
+                    render_trait_definition(trait_definition, resolver)?
+                }
+                WholeLogosItem::TraitImpl(trait_implementation) => {
+                    render_trait_implementation(trait_implementation, resolver)?
+                }
             };
-            items.push(evaluator.encode_text(expected, &value, resolver)?);
+            items.push(rendered);
         }
         Ok(RenderedFixtureDocument(items).to_string())
     }
@@ -185,6 +195,12 @@ impl RustLogos {
                     require_projection("newtype name", newtype.name(), projections)?;
                     self.validate_reference(newtype.wrapped(), projections)?;
                 }
+                WholeLogosItem::Struct(structure) => {
+                    require_projection("struct name", structure.name(), projections)?;
+                    for field in structure.fields() {
+                        self.validate_reference(field, projections)?;
+                    }
+                }
                 WholeLogosItem::Enumeration(enumeration) => {
                     require_projection("enumeration name", enumeration.name(), projections)?;
                     for variant in enumeration.variants() {
@@ -194,6 +210,24 @@ impl RustLogos {
                                 self.validate_reference(field, projections)?;
                             }
                         }
+                    }
+                }
+                WholeLogosItem::TraitDef(trait_definition) => {
+                    require_projection("trait name", trait_definition.name(), projections)?;
+                    for method in trait_definition.methods() {
+                        require_projection("method name", method.name(), projections)?;
+                        for parameter in method.parameters() {
+                            self.validate_reference(parameter, projections)?;
+                        }
+                        self.validate_reference(method.return_type(), projections)?;
+                    }
+                }
+                WholeLogosItem::TraitImpl(trait_implementation) => {
+                    self.validate_reference(trait_implementation.implemented_trait(), projections)?;
+                    self.validate_reference(trait_implementation.implementing_type(), projections)?;
+                    for binding in trait_implementation.associated_type_bindings() {
+                        require_projection("associated type name", binding.name(), projections)?;
+                        self.validate_reference(binding.value(), projections)?;
                     }
                 }
             }
@@ -519,6 +553,166 @@ fn reflect_visibility(
     }
 }
 
+fn render_struct<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
+    structure: &WholeLogosStruct,
+    resolver: &Resolver,
+) -> Result<String, Error> {
+    let visibility = render_visibility(structure.visibility());
+    let name = resolved_identifier("struct name", structure.name(), resolver)?;
+    let fields = structure
+        .fields()
+        .iter()
+        .enumerate()
+        .map(|(index, reference)| {
+            let name = positional_identifier("field_", index);
+            let field_type = render_reference(reference, resolver)?;
+            Ok(quote::quote!(pub #name: #field_type))
+        })
+        .collect::<Result<Vec<_>, Error>>()?;
+    canonical_item(quote::quote!(#visibility struct #name { #(#fields,)* }))
+}
+
+fn render_trait_definition<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
+    trait_definition: &WholeLogosTraitDef,
+    resolver: &Resolver,
+) -> Result<String, Error> {
+    let visibility = render_visibility(trait_definition.visibility());
+    let name = resolved_identifier("trait name", trait_definition.name(), resolver)?;
+    let methods = trait_definition
+        .methods()
+        .iter()
+        .map(|method| render_trait_method(method, resolver))
+        .collect::<Result<Vec<_>, Error>>()?;
+    canonical_item(quote::quote!(#visibility trait #name { #(#methods)* }))
+}
+
+fn render_trait_method<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
+    method: &WholeLogosTraitMethod,
+    resolver: &Resolver,
+) -> Result<proc_macro2::TokenStream, Error> {
+    let authored_name = resolved_spelling("method name", method.name(), resolver)?;
+    let name = syn::parse_str::<syn::Ident>(&lower_camel_to_snake_case(&authored_name))
+        .map_err(|error| Error::Project(error.to_string()))?;
+    let parameters = method
+        .parameters()
+        .iter()
+        .enumerate()
+        .map(|(index, reference)| {
+            let name = positional_identifier("parameter_", index);
+            let parameter_type = render_reference(reference, resolver)?;
+            Ok(quote::quote!(#name: #parameter_type))
+        })
+        .collect::<Result<Vec<_>, Error>>()?;
+    let return_type = render_reference(method.return_type(), resolver)?;
+    Ok(quote::quote!(fn #name(&self #(, #parameters)*) -> #return_type;))
+}
+
+fn render_trait_implementation<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
+    trait_implementation: &WholeLogosTraitImpl,
+    resolver: &Resolver,
+) -> Result<String, Error> {
+    let implemented_trait = render_reference(trait_implementation.implemented_trait(), resolver)?;
+    let implementing_type = render_reference(trait_implementation.implementing_type(), resolver)?;
+    let bindings = trait_implementation
+        .associated_type_bindings()
+        .iter()
+        .map(|binding| render_associated_type_binding(binding, resolver))
+        .collect::<Result<Vec<_>, Error>>()?;
+    canonical_item(quote::quote!(impl #implemented_trait for #implementing_type { #(#bindings)* }))
+}
+
+fn render_associated_type_binding<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
+    binding: &WholeLogosAssociatedTypeBinding,
+    resolver: &Resolver,
+) -> Result<proc_macro2::TokenStream, Error> {
+    let name = resolved_identifier("associated type name", binding.name(), resolver)?;
+    let value = render_reference(binding.value(), resolver)?;
+    Ok(quote::quote!(type #name = #value;))
+}
+
+fn render_reference<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
+    reference: &WholeLogosTypeReference,
+    resolver: &Resolver,
+) -> Result<syn::Type, Error> {
+    match reference {
+        WholeLogosTypeReference::Identity(identity) => {
+            syn::parse_str::<syn::Type>(&resolved_spelling("type reference", identity, resolver)?)
+                .map_err(|error| Error::Project(error.to_string()))
+        }
+        WholeLogosTypeReference::Application(application) => {
+            let head = resolved_identifier("application head", application.head(), resolver)?;
+            let payload = render_reference(application.payload(), resolver)?;
+            syn::parse2::<syn::Type>(quote::quote!(#head<#payload>))
+                .map_err(|error| Error::Project(error.to_string()))
+        }
+    }
+}
+
+fn resolved_identifier<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
+    position: &'static str,
+    identity: &VocabularyEncodedId,
+    resolver: &Resolver,
+) -> Result<syn::Ident, Error> {
+    syn::parse_str::<syn::Ident>(&resolved_spelling(position, identity, resolver)?)
+        .map_err(|error| Error::Project(error.to_string()))
+}
+
+fn resolved_spelling<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
+    position: &'static str,
+    identity: &VocabularyEncodedId,
+    resolver: &Resolver,
+) -> Result<String, Error> {
+    resolver
+        .resolve(identity)
+        .map(|name| name.as_str().to_owned())
+        .ok_or_else(|| Error::MissingVocabularyName {
+            position,
+            encoded_id: identity.clone(),
+        })
+}
+
+fn render_visibility(visibility: &WholeLogosVisibility) -> proc_macro2::TokenStream {
+    match visibility {
+        WholeLogosVisibility::Public => quote::quote!(pub),
+        WholeLogosVisibility::Private => quote::quote!(),
+    }
+}
+
+fn positional_identifier(prefix: &str, index: usize) -> syn::Ident {
+    let mut spelling = String::with_capacity(prefix.len() + 4);
+    for character in prefix.chars() {
+        spelling.push(character);
+    }
+    for character in index.to_string().chars() {
+        spelling.push(character);
+    }
+    syn::Ident::new(&spelling, proc_macro2::Span::call_site())
+}
+
+fn lower_camel_to_snake_case(authored: &str) -> String {
+    let mut projected = String::with_capacity(authored.len());
+    for character in authored.chars() {
+        if character.is_ascii_uppercase() {
+            projected.push('_');
+            projected.push(character.to_ascii_lowercase());
+        } else {
+            projected.push(character);
+        }
+    }
+    projected
+}
+
+fn canonical_item(tokens: proc_macro2::TokenStream) -> Result<String, Error> {
+    let item =
+        syn::parse2::<syn::Item>(tokens).map_err(|error| Error::Project(error.to_string()))?;
+    let file = syn::File {
+        shebang: None,
+        attrs: Vec::new(),
+        items: vec![item],
+    };
+    Ok(prettyplease::unparse(&file).trim_end().to_owned())
+}
+
 fn reify_visibility<Role: FieldRole>(
     value: &StructuralValue<VocabularyRoot>,
 ) -> Result<WholeLogosVisibility, Error> {
@@ -560,6 +754,12 @@ fn generated_names<Allocated: EncodedNameResolver<VocabularyRoot> + ?Sized>(
                 insert_generated("newtype name", newtype.name(), allocated, &mut generated)?;
                 validate_production_reference(newtype.wrapped(), allocated, &mut generated)?;
             }
+            WholeLogosItem::Struct(structure) => {
+                insert_generated("struct name", structure.name(), allocated, &mut generated)?;
+                for field in structure.fields() {
+                    validate_production_reference(field, allocated, &mut generated)?;
+                }
+            }
             WholeLogosItem::Enumeration(enumeration) => {
                 insert_generated(
                     "enumeration name",
@@ -574,6 +774,42 @@ fn generated_names<Allocated: EncodedNameResolver<VocabularyRoot> + ?Sized>(
                             validate_production_reference(field, allocated, &mut generated)?;
                         }
                     }
+                }
+            }
+            WholeLogosItem::TraitDef(trait_definition) => {
+                insert_generated(
+                    "trait name",
+                    trait_definition.name(),
+                    allocated,
+                    &mut generated,
+                )?;
+                for method in trait_definition.methods() {
+                    insert_generated("method name", method.name(), allocated, &mut generated)?;
+                    for parameter in method.parameters() {
+                        validate_production_reference(parameter, allocated, &mut generated)?;
+                    }
+                    validate_production_reference(method.return_type(), allocated, &mut generated)?;
+                }
+            }
+            WholeLogosItem::TraitImpl(trait_implementation) => {
+                validate_production_reference(
+                    trait_implementation.implemented_trait(),
+                    allocated,
+                    &mut generated,
+                )?;
+                validate_production_reference(
+                    trait_implementation.implementing_type(),
+                    allocated,
+                    &mut generated,
+                )?;
+                for binding in trait_implementation.associated_type_bindings() {
+                    insert_generated(
+                        "associated type name",
+                        binding.name(),
+                        allocated,
+                        &mut generated,
+                    )?;
+                    validate_production_reference(binding.value(), allocated, &mut generated)?;
                 }
             }
         }

@@ -2,12 +2,15 @@
 //!
 //! Structural Rust decoding and emission for Logos.
 //!
-//! The bounded fixture slice supports ordered, attribute-free tuple newtypes
-//! and non-generic enumerations with unit or positional tuple variants. Pass one uses
+//! The bounded fixture slice supports ordered, attribute-free tuple newtypes,
+//! structs, non-generic enumerations, behavior traits, and associated-type trait
+//! implementations. Pass one uses
 //! `raw-discovery`'s cue-to-termination model, with strings and comments opaque
 //! and every block source-bounded. Pass two evaluates fully typed Rust position
 //! records through `structural-codec`'s shared evaluator. Emission reflects the
-//! same complete item records.
+//! same complete item records. Trait receivers and positional parameter names
+//! are Rust-assembly facts; methods project lowerCamel source names to snake_case
+//! only at this boundary.
 //!
 //! Production emission names every Universal identity by the canonical
 //! Base58BTC textual encoding of its complete root-fronted encoded-ID chain.
