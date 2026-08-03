@@ -6,16 +6,16 @@ use std::process::Command;
 
 use core_logos::{
     WholeLogos, WholeLogosAssociatedTypeBinding, WholeLogosEnumeration, WholeLogosItem,
-    WholeLogosNewtype, WholeLogosStruct, WholeLogosTable, WholeLogosTraitDef, WholeLogosTraitImpl,
-    WholeLogosTraitMethod, WholeLogosTupleFields, WholeLogosTypeApplication,
-    WholeLogosTypeAttributes, WholeLogosTypeReference, WholeLogosVariant, WholeLogosVariantPayload,
-    WholeLogosVisibility,
+    WholeLogosNewtype, WholeLogosStorageFingerprint, WholeLogosStruct, WholeLogosTable,
+    WholeLogosTraitDef, WholeLogosTraitImpl, WholeLogosTraitMethod, WholeLogosTupleFields,
+    WholeLogosTypeApplication, WholeLogosTypeAttributes, WholeLogosTypeReference,
+    WholeLogosVariant, WholeLogosVariantPayload, WholeLogosVisibility,
 };
 use name_table::{LocalEncodedId, Name};
 use rust_logos::{
     Error, FixtureRustEmittedIdentifier, FixtureRustNameProjectionTable, FixtureRustVocabulary,
     FixtureRustVocabularyIds, InterfaceRustEmission, InterfaceRustRoleIds, RustEncodedIdCodec,
-    RustLogos,
+    RustLogos, RustTypePath, RustTypePathResolver,
 };
 use signal_sema_translator::{VocabularyEncodedId, VocabularyRoot};
 use structural_codec::EncodedNameResolver;
@@ -47,6 +47,15 @@ impl Names {
 
 impl EncodedNameResolver<VocabularyRoot> for Names {
     fn resolve(&self, encoded_id: &VocabularyEncodedId) -> Option<&Name> {
+        self.0.get(encoded_id)
+    }
+}
+
+#[derive(Default)]
+struct TypePaths(BTreeMap<VocabularyEncodedId, RustTypePath>);
+
+impl RustTypePathResolver for TypePaths {
+    fn resolve_type_path(&self, encoded_id: &VocabularyEncodedId) -> Option<&RustTypePath> {
         self.0.get(encoded_id)
     }
 }
@@ -330,6 +339,8 @@ fn stored_policy_and_table_shape_project_to_the_sema_engine_trait() {
             table.clone(),
             reference(&record),
             reference(&key),
+            WholeLogosStorageFingerprint::new([7; 32]),
+            WholeLogosStorageFingerprint::new([8; 32]),
         )),
     ]);
     let emitted = rust_logos()
@@ -369,6 +380,51 @@ fn stored_policy_and_table_shape_project_to_the_sema_engine_trait() {
         )),
         "{emitted}"
     );
+}
+
+#[test]
+fn production_references_use_validated_external_paths_without_redeclaring_the_type() {
+    let record = universal(57);
+    let domain = universal(58);
+    let table = universal(59);
+    let logos = WholeLogos::new(vec![
+        WholeLogosItem::Struct(
+            WholeLogosStruct::new(
+                WholeLogosVisibility::Public,
+                record.clone(),
+                vec![reference(&domain)],
+            )
+            .with_attributes(WholeLogosTypeAttributes::Stored),
+        ),
+        WholeLogosItem::Table(WholeLogosTable::new(
+            table.clone(),
+            reference(&record),
+            reference(&domain),
+            WholeLogosStorageFingerprint::new([11; 32]),
+            WholeLogosStorageFingerprint::new([12; 32]),
+        )),
+    ]);
+    let mut names = Names::default();
+    names.add(record.clone(), "StoredRecord");
+    names.add(domain.clone(), "Domain");
+    names.add(table, "records");
+    let mut paths = TypePaths::default();
+    paths.0.insert(
+        domain,
+        RustTypePath::try_new(vec!["signal_domain".to_owned(), "Domain".to_owned()])
+            .expect("external Domain path"),
+    );
+
+    let emitted = rust_logos()
+        .emit_with_type_paths(&logos, &names, &paths)
+        .expect("emit external storage type path");
+
+    assert!(emitted.contains("signal_domain::Domain"), "{emitted}");
+    assert!(!emitted.contains("struct Domain"), "{emitted}");
+    assert!(matches!(
+        RustTypePath::try_new(vec!["signal_domain::Domain".to_owned()]),
+        Err(Error::InvalidExternalRustTypePath { .. })
+    ));
 }
 
 #[test]

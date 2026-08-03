@@ -40,6 +40,71 @@ pub trait InterfaceRustEmission {
     ) -> Result<String, Error>;
 }
 
+/// Lookup of caller-owned Rust type paths for references imported by an Ethos
+/// document or otherwise supplied by its assembly.
+pub trait RustTypePathResolver {
+    /// Resolve one complete encoded type identity to its canonical external
+    /// Rust path. Declarations themselves must never resolve here.
+    fn resolve_type_path(&self, encoded_id: &VocabularyEncodedId) -> Option<&RustTypePath>;
+}
+
+/// One validated, canonical external Rust path assembled from explicit path
+/// segments rather than source concatenation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RustTypePath {
+    segments: Vec<String>,
+}
+
+impl RustTypePath {
+    /// Validate a non-empty sequence of Rust path segments.
+    pub fn try_new(segments: Vec<String>) -> Result<Self, Error> {
+        if segments.is_empty() {
+            return Err(Error::InvalidExternalRustTypePath {
+                path: String::new(),
+            });
+        }
+        for segment in &segments {
+            if segment.is_empty()
+                || segment.contains("::")
+                || syn::parse_str::<syn::PathSegment>(segment).is_err()
+            {
+                return Err(Error::InvalidExternalRustTypePath {
+                    path: segment.clone(),
+                });
+            }
+        }
+        Ok(Self { segments })
+    }
+
+    fn as_path(&self) -> Result<syn::Path, Error> {
+        let mut segments = syn::punctuated::Punctuated::new();
+        for source in &self.segments {
+            segments.push(syn::parse_str::<syn::PathSegment>(source).map_err(|_| {
+                Error::InvalidExternalRustTypePath {
+                    path: source.clone(),
+                }
+            })?);
+        }
+        Ok(syn::Path {
+            leading_colon: None,
+            segments,
+        })
+    }
+
+    /// Canonical path segments after validation.
+    pub fn segments(&self) -> &[String] {
+        &self.segments
+    }
+}
+
+struct NoRustTypePaths;
+
+impl RustTypePathResolver for NoRustTypePaths {
+    fn resolve_type_path(&self, _encoded_id: &VocabularyEncodedId) -> Option<&RustTypePath> {
+        None
+    }
+}
+
 /// The three exact universal Interface role identities used during assembly.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InterfaceRustRoleIds {
@@ -215,16 +280,32 @@ impl RustLogos {
         logos: &WholeLogos,
         allocated: &Allocated,
     ) -> Result<String, Error> {
-        let generated = generated_names(logos, allocated)?;
+        self.emit_with_type_paths(logos, allocated, &NoRustTypePaths)
+    }
+
+    /// Emit production Rust while resolving caller-owned imported references
+    /// to their canonical external paths. Local declarations still use their
+    /// complete encoded identities and can never be shadowed by this mapping.
+    pub fn emit_with_type_paths<
+        Allocated: EncodedNameResolver<VocabularyRoot> + ?Sized,
+        Types: RustTypePathResolver + ?Sized,
+    >(
+        &self,
+        logos: &WholeLogos,
+        allocated: &Allocated,
+        types: &Types,
+    ) -> Result<String, Error> {
+        let generated = generated_names(logos, allocated, types)?;
         let resolver = ProductionResolver {
             vocabulary: &self.vocabulary,
             allocated,
+            types,
             generated,
         };
         self.emit_with_resolver(logos, &resolver, None)
     }
 
-    fn emit_with_resolver<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
+    fn emit_with_resolver<Resolver: RustEmissionResolver + ?Sized>(
         &self,
         logos: &WholeLogos,
         resolver: &Resolver,
@@ -640,10 +721,28 @@ impl InterfaceRustEmission for RustLogos {
         allocated: &Allocated,
         roles: &InterfaceRustRoleIds,
     ) -> Result<String, Error> {
-        let generated = generated_names(logos, allocated)?;
+        self.emit_interface_with_type_paths(logos, allocated, roles, &NoRustTypePaths)
+    }
+}
+
+impl RustLogos {
+    /// Emit Interface Rust with the same explicit external-reference mapping as
+    /// ordinary production emission.
+    pub fn emit_interface_with_type_paths<
+        Allocated: EncodedNameResolver<VocabularyRoot> + ?Sized,
+        Types: RustTypePathResolver + ?Sized,
+    >(
+        &self,
+        logos: &WholeLogos,
+        allocated: &Allocated,
+        roles: &InterfaceRustRoleIds,
+        types: &Types,
+    ) -> Result<String, Error> {
+        let generated = generated_names(logos, allocated, types)?;
         let resolver = ProductionResolver {
             vocabulary: &self.vocabulary,
             allocated,
+            types,
             generated,
         };
         self.emit_with_resolver(logos, &resolver, Some(roles))
@@ -662,7 +761,7 @@ fn reflect_visibility(
     }
 }
 
-fn render_struct<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
+fn render_struct<Resolver: RustEmissionResolver + ?Sized>(
     structure: &WholeLogosStruct,
     resolver: &Resolver,
 ) -> Result<String, Error> {
@@ -685,7 +784,7 @@ fn render_struct<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
     canonical_item(quote::quote!(#attributes #visibility struct #name { #(#fields,)* }))
 }
 
-fn render_newtype<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
+fn render_newtype<Resolver: RustEmissionResolver + ?Sized>(
     newtype: &WholeLogosNewtype,
     resolver: &Resolver,
 ) -> Result<String, Error> {
@@ -699,7 +798,7 @@ fn render_newtype<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
     ))
 }
 
-fn render_enumeration<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
+fn render_enumeration<Resolver: RustEmissionResolver + ?Sized>(
     enumeration: &WholeLogosEnumeration,
     resolver: &Resolver,
 ) -> Result<String, Error> {
@@ -716,7 +815,7 @@ fn render_enumeration<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
     ))
 }
 
-fn render_variant<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
+fn render_variant<Resolver: RustEmissionResolver + ?Sized>(
     variant: &WholeLogosVariant,
     resolver: &Resolver,
 ) -> Result<proc_macro2::TokenStream, Error> {
@@ -768,7 +867,7 @@ fn render_type_attributes(attributes: WholeLogosTypeAttributes) -> proc_macro2::
     }
 }
 
-fn render_table<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
+fn render_table<Resolver: RustEmissionResolver + ?Sized>(
     table: &WholeLogosTable,
     resolver: &Resolver,
 ) -> Result<String, Error> {
@@ -805,7 +904,7 @@ fn render_table<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
         .to_owned())
 }
 
-fn render_trait_definition<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
+fn render_trait_definition<Resolver: RustEmissionResolver + ?Sized>(
     trait_definition: &WholeLogosTraitDef,
     resolver: &Resolver,
 ) -> Result<String, Error> {
@@ -819,7 +918,7 @@ fn render_trait_definition<Resolver: EncodedNameResolver<VocabularyRoot> + ?Size
     canonical_item(quote::quote!(#visibility trait #name { #(#methods)* }))
 }
 
-fn render_trait_method<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
+fn render_trait_method<Resolver: RustEmissionResolver + ?Sized>(
     method: &WholeLogosTraitMethod,
     resolver: &Resolver,
 ) -> Result<proc_macro2::TokenStream, Error> {
@@ -840,7 +939,7 @@ fn render_trait_method<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
     Ok(quote::quote!(fn #name(&self #(, #parameters)*) -> #return_type;))
 }
 
-fn render_trait_implementation<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
+fn render_trait_implementation<Resolver: RustEmissionResolver + ?Sized>(
     trait_implementation: &WholeLogosTraitImpl,
     resolver: &Resolver,
     interface_roles: Option<&InterfaceRustRoleIds>,
@@ -862,7 +961,7 @@ fn render_trait_implementation<Resolver: EncodedNameResolver<VocabularyRoot> + ?
     canonical_item(quote::quote!(impl #implemented_trait for #implementing_type { #(#bindings)* }))
 }
 
-fn render_refusal_implementation<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
+fn render_refusal_implementation<Resolver: RustEmissionResolver + ?Sized>(
     trait_implementation: &WholeLogosTraitImpl,
     resolver: &Resolver,
 ) -> Result<String, Error> {
@@ -896,7 +995,7 @@ fn render_refusal_implementation<Resolver: EncodedNameResolver<VocabularyRoot> +
         .to_owned())
 }
 
-fn render_associated_type_binding<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
+fn render_associated_type_binding<Resolver: RustEmissionResolver + ?Sized>(
     binding: &WholeLogosAssociatedTypeBinding,
     resolver: &Resolver,
 ) -> Result<proc_macro2::TokenStream, Error> {
@@ -905,20 +1004,36 @@ fn render_associated_type_binding<Resolver: EncodedNameResolver<VocabularyRoot> 
     Ok(quote::quote!(type #name = #value;))
 }
 
-fn render_reference<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
+fn render_reference<Resolver: RustEmissionResolver + ?Sized>(
     reference: &WholeLogosTypeReference,
     resolver: &Resolver,
 ) -> Result<syn::Type, Error> {
     match reference {
         WholeLogosTypeReference::Identity(identity) => {
-            syn::parse_str::<syn::Type>(&resolved_spelling("type reference", identity, resolver)?)
+            if let Some(external) = resolver.external_type_path(identity) {
+                let path = external.as_path()?;
+                syn::parse2::<syn::Type>(quote::quote!(#path))
+                    .map_err(|error| Error::Project(error.to_string()))
+            } else {
+                syn::parse_str::<syn::Type>(&resolved_spelling(
+                    "type reference",
+                    identity,
+                    resolver,
+                )?)
                 .map_err(|error| Error::Project(error.to_string()))
+            }
         }
         WholeLogosTypeReference::Application(application) => {
-            let head = resolved_identifier("application head", application.head(), resolver)?;
             let payload = render_reference(application.payload(), resolver)?;
-            syn::parse2::<syn::Type>(quote::quote!(#head<#payload>))
-                .map_err(|error| Error::Project(error.to_string()))
+            if let Some(external) = resolver.external_type_path(application.head()) {
+                let head = external.as_path()?;
+                syn::parse2::<syn::Type>(quote::quote!(#head<#payload>))
+                    .map_err(|error| Error::Project(error.to_string()))
+            } else {
+                let head = resolved_identifier("application head", application.head(), resolver)?;
+                syn::parse2::<syn::Type>(quote::quote!(#head<#payload>))
+                    .map_err(|error| Error::Project(error.to_string()))
+            }
         }
     }
 }
@@ -1018,21 +1133,37 @@ fn require_projection(
     Ok(())
 }
 
-fn generated_names<Allocated: EncodedNameResolver<VocabularyRoot> + ?Sized>(
+fn generated_names<
+    Allocated: EncodedNameResolver<VocabularyRoot> + ?Sized,
+    Types: RustTypePathResolver + ?Sized,
+>(
     logos: &WholeLogos,
     allocated: &Allocated,
+    types: &Types,
 ) -> Result<BTreeMap<VocabularyEncodedId, Name>, Error> {
     let mut generated = BTreeMap::new();
     for item in logos.items() {
         match item {
             WholeLogosItem::Newtype(newtype) => {
-                insert_generated("newtype name", newtype.name(), allocated, &mut generated)?;
-                validate_production_reference(newtype.wrapped(), allocated, &mut generated)?;
+                insert_generated(
+                    "newtype name",
+                    newtype.name(),
+                    allocated,
+                    types,
+                    &mut generated,
+                )?;
+                validate_production_reference(newtype.wrapped(), allocated, types, &mut generated)?;
             }
             WholeLogosItem::Struct(structure) => {
-                insert_generated("struct name", structure.name(), allocated, &mut generated)?;
+                insert_generated(
+                    "struct name",
+                    structure.name(),
+                    allocated,
+                    types,
+                    &mut generated,
+                )?;
                 for field in structure.fields() {
-                    validate_production_reference(field, allocated, &mut generated)?;
+                    validate_production_reference(field, allocated, types, &mut generated)?;
                 }
             }
             WholeLogosItem::Enumeration(enumeration) => {
@@ -1040,13 +1171,20 @@ fn generated_names<Allocated: EncodedNameResolver<VocabularyRoot> + ?Sized>(
                     "enumeration name",
                     enumeration.name(),
                     allocated,
+                    types,
                     &mut generated,
                 )?;
                 for variant in enumeration.variants() {
-                    insert_generated("variant name", variant.name(), allocated, &mut generated)?;
+                    insert_generated(
+                        "variant name",
+                        variant.name(),
+                        allocated,
+                        types,
+                        &mut generated,
+                    )?;
                     if let WholeLogosVariantPayload::Tuple(fields) = variant.payload() {
                         for field in fields.fields() {
-                            validate_production_reference(field, allocated, &mut generated)?;
+                            validate_production_reference(field, allocated, types, &mut generated)?;
                         }
                     }
                 }
@@ -1056,25 +1194,39 @@ fn generated_names<Allocated: EncodedNameResolver<VocabularyRoot> + ?Sized>(
                     "trait name",
                     trait_definition.name(),
                     allocated,
+                    types,
                     &mut generated,
                 )?;
                 for method in trait_definition.methods() {
-                    insert_generated("method name", method.name(), allocated, &mut generated)?;
+                    insert_generated(
+                        "method name",
+                        method.name(),
+                        allocated,
+                        types,
+                        &mut generated,
+                    )?;
                     for parameter in method.parameters() {
-                        validate_production_reference(parameter, allocated, &mut generated)?;
+                        validate_production_reference(parameter, allocated, types, &mut generated)?;
                     }
-                    validate_production_reference(method.return_type(), allocated, &mut generated)?;
+                    validate_production_reference(
+                        method.return_type(),
+                        allocated,
+                        types,
+                        &mut generated,
+                    )?;
                 }
             }
             WholeLogosItem::TraitImpl(trait_implementation) => {
                 validate_production_reference(
                     trait_implementation.implemented_trait(),
                     allocated,
+                    types,
                     &mut generated,
                 )?;
                 validate_production_reference(
                     trait_implementation.implementing_type(),
                     allocated,
+                    types,
                     &mut generated,
                 )?;
                 for binding in trait_implementation.associated_type_bindings() {
@@ -1082,30 +1234,42 @@ fn generated_names<Allocated: EncodedNameResolver<VocabularyRoot> + ?Sized>(
                         "associated type name",
                         binding.name(),
                         allocated,
+                        types,
                         &mut generated,
                     )?;
-                    validate_production_reference(binding.value(), allocated, &mut generated)?;
+                    validate_production_reference(
+                        binding.value(),
+                        allocated,
+                        types,
+                        &mut generated,
+                    )?;
                 }
             }
             WholeLogosItem::Table(table) => {
-                insert_generated("table name", table.name(), allocated, &mut generated)?;
-                validate_production_reference(table.record(), allocated, &mut generated)?;
-                validate_production_reference(table.key(), allocated, &mut generated)?;
+                insert_generated("table name", table.name(), allocated, types, &mut generated)?;
+                validate_production_reference(table.record(), allocated, types, &mut generated)?;
+                validate_production_reference(table.key(), allocated, types, &mut generated)?;
             }
         }
     }
     Ok(generated)
 }
 
-fn validate_production_reference<Allocated: EncodedNameResolver<VocabularyRoot> + ?Sized>(
+fn validate_production_reference<
+    Allocated: EncodedNameResolver<VocabularyRoot> + ?Sized,
+    Types: RustTypePathResolver + ?Sized,
+>(
     reference: &WholeLogosTypeReference,
     allocated: &Allocated,
+    types: &Types,
     generated: &mut BTreeMap<VocabularyEncodedId, Name>,
 ) -> Result<(), Error> {
     match reference {
         WholeLogosTypeReference::Identity(encoded_id) => {
             validate_allocated("type reference", encoded_id, allocated)?;
-            if encoded_id.root_variant() == &VocabularyRoot::Universal {
+            if encoded_id.root_variant() == &VocabularyRoot::Universal
+                && types.resolve_type_path(encoded_id).is_none()
+            {
                 generated
                     .entry(encoded_id.clone())
                     .or_insert_with(|| RustEncodedIdCodec::encode_name(encoded_id));
@@ -1114,24 +1278,35 @@ fn validate_production_reference<Allocated: EncodedNameResolver<VocabularyRoot> 
         }
         WholeLogosTypeReference::Application(application) => {
             validate_allocated("application head", application.head(), allocated)?;
-            if application.head().root_variant() == &VocabularyRoot::Universal {
+            if application.head().root_variant() == &VocabularyRoot::Universal
+                && types.resolve_type_path(application.head()).is_none()
+            {
                 generated
                     .entry(application.head().clone())
                     .or_insert_with(|| RustEncodedIdCodec::encode_name(application.head()));
             }
-            validate_production_reference(application.payload(), allocated, generated)
+            validate_production_reference(application.payload(), allocated, types, generated)
         }
     }
 }
 
-fn insert_generated<Allocated: EncodedNameResolver<VocabularyRoot> + ?Sized>(
+fn insert_generated<
+    Allocated: EncodedNameResolver<VocabularyRoot> + ?Sized,
+    Types: RustTypePathResolver + ?Sized,
+>(
     position: &'static str,
     encoded_id: &VocabularyEncodedId,
     allocated: &Allocated,
+    types: &Types,
     generated: &mut BTreeMap<VocabularyEncodedId, Name>,
 ) -> Result<(), Error> {
     validate_universal(position, encoded_id)?;
     validate_allocated(position, encoded_id, allocated)?;
+    if types.resolve_type_path(encoded_id).is_some() {
+        return Err(Error::ExternalRustTypeDeclaration {
+            encoded_id: encoded_id.clone(),
+        });
+    }
     generated
         .entry(encoded_id.clone())
         .or_insert_with(|| RustEncodedIdCodec::encode_name(encoded_id));
@@ -1268,6 +1443,10 @@ struct FixtureResolver<'a> {
     projections: &'a FixtureRustNameProjectionTable,
 }
 
+trait RustEmissionResolver: EncodedNameResolver<VocabularyRoot> {
+    fn external_type_path(&self, encoded_id: &VocabularyEncodedId) -> Option<&RustTypePath>;
+}
+
 impl EncodedNameResolver<VocabularyRoot> for FixtureResolver<'_> {
     fn resolve(&self, encoded_id: &VocabularyEncodedId) -> Option<&Name> {
         self.vocabulary
@@ -1276,14 +1455,21 @@ impl EncodedNameResolver<VocabularyRoot> for FixtureResolver<'_> {
     }
 }
 
-struct ProductionResolver<'a, Allocated: ?Sized> {
+impl RustEmissionResolver for FixtureResolver<'_> {
+    fn external_type_path(&self, _encoded_id: &VocabularyEncodedId) -> Option<&RustTypePath> {
+        None
+    }
+}
+
+struct ProductionResolver<'a, Allocated: ?Sized, Types: ?Sized> {
     vocabulary: &'a FixtureRustVocabulary,
     allocated: &'a Allocated,
+    types: &'a Types,
     generated: BTreeMap<VocabularyEncodedId, Name>,
 }
 
-impl<Allocated: EncodedNameResolver<VocabularyRoot> + ?Sized> EncodedNameResolver<VocabularyRoot>
-    for ProductionResolver<'_, Allocated>
+impl<Allocated: EncodedNameResolver<VocabularyRoot> + ?Sized, Types: RustTypePathResolver + ?Sized>
+    EncodedNameResolver<VocabularyRoot> for ProductionResolver<'_, Allocated, Types>
 {
     fn resolve(&self, encoded_id: &VocabularyEncodedId) -> Option<&Name> {
         self.vocabulary
@@ -1292,6 +1478,14 @@ impl<Allocated: EncodedNameResolver<VocabularyRoot> + ?Sized> EncodedNameResolve
                 VocabularyRoot::Universal => self.generated.get(encoded_id),
                 VocabularyRoot::Rust => self.allocated.resolve(encoded_id),
             })
+    }
+}
+
+impl<Allocated: EncodedNameResolver<VocabularyRoot> + ?Sized, Types: RustTypePathResolver + ?Sized>
+    RustEmissionResolver for ProductionResolver<'_, Allocated, Types>
+{
+    fn external_type_path(&self, encoded_id: &VocabularyEncodedId) -> Option<&RustTypePath> {
+        self.types.resolve_type_path(encoded_id)
     }
 }
 

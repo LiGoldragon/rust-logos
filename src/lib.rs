@@ -24,7 +24,9 @@ mod fixture_vocabulary;
 mod identifier;
 mod legacy_project;
 
-pub use codec::{InterfaceRustEmission, InterfaceRustRoleIds, RustLogos};
+pub use codec::{
+    InterfaceRustEmission, InterfaceRustRoleIds, RustLogos, RustTypePath, RustTypePathResolver,
+};
 pub use error::{EncodedIdCodecRefusal, Error, RustIdentifierRefusal};
 pub use fixture_vocabulary::{
     FixtureRustRule, FixtureRustVocabulary, FixtureRustVocabularyIds, ReferencedTypePosition,

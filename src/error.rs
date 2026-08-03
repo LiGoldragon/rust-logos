@@ -110,6 +110,16 @@ pub enum Error {
         reason: RustIdentifierRefusal,
     },
 
+    /// A caller-owned external type path was empty or not a canonical Rust
+    /// path assembled from distinct segments.
+    #[error("external Rust type path {path:?} is invalid")]
+    InvalidExternalRustTypePath { path: String },
+
+    /// An identity declared by this WholeLogos document was also configured as
+    /// externally owned, which would make ownership ambiguous.
+    #[error("declared identity {encoded_id:?} is also configured as an external Rust type")]
+    ExternalRustTypeDeclaration { encoded_id: VocabularyEncodedId },
+
     /// One encoded identity was projected twice.
     #[error("encoded identity {encoded_id:?} has more than one emitted-name projection")]
     DuplicateProjectionIdentity {
