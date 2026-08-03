@@ -387,7 +387,27 @@ fn production_references_use_validated_external_paths_without_redeclaring_the_ty
     let record = universal(57);
     let domain = universal(58);
     let table = universal(59);
+    let wrapper = universal(67);
+    let choice = universal(68);
+    let carrying = universal(69);
     let logos = WholeLogos::new(vec![
+        WholeLogosItem::Newtype(WholeLogosNewtype::new(
+            WholeLogosVisibility::Public,
+            wrapper.clone(),
+            WholeLogosVisibility::Private,
+            reference(&domain),
+        )),
+        WholeLogosItem::Enumeration(WholeLogosEnumeration::new(
+            WholeLogosVisibility::Public,
+            choice.clone(),
+            vec![WholeLogosVariant::new(
+                carrying.clone(),
+                WholeLogosVariantPayload::Tuple(
+                    WholeLogosTupleFields::new(vec![reference(&domain)])
+                        .expect("one-field external payload"),
+                ),
+            )],
+        )),
         WholeLogosItem::Struct(
             WholeLogosStruct::new(
                 WholeLogosVisibility::Public,
@@ -408,6 +428,9 @@ fn production_references_use_validated_external_paths_without_redeclaring_the_ty
     names.add(record.clone(), "StoredRecord");
     names.add(domain.clone(), "Domain");
     names.add(table, "records");
+    names.add(wrapper.clone(), "DomainWrapper");
+    names.add(choice, "DomainChoice");
+    names.add(carrying.clone(), "Carrying");
     let mut paths = TypePaths::default();
     paths.0.insert(
         domain,
@@ -420,6 +443,20 @@ fn production_references_use_validated_external_paths_without_redeclaring_the_ty
         .expect("emit external storage type path");
 
     assert!(emitted.contains("signal_domain::Domain"), "{emitted}");
+    assert!(
+        emitted.contains(&format!(
+            "pub struct {}(signal_domain::Domain);",
+            RustEncodedIdCodec::encode(&wrapper)
+        )),
+        "{emitted}"
+    );
+    assert!(
+        emitted.contains(&format!(
+            "{}(signal_domain::Domain)",
+            RustEncodedIdCodec::encode(&carrying)
+        )),
+        "{emitted}"
+    );
     assert!(!emitted.contains("struct Domain"), "{emitted}");
     assert!(matches!(
         RustTypePath::try_new(vec!["signal_domain::Domain".to_owned()]),

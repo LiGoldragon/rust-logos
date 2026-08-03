@@ -318,7 +318,8 @@ impl RustLogos {
         for item in logos.items() {
             let rendered = match item {
                 WholeLogosItem::Newtype(newtype)
-                    if newtype.attributes() != WholeLogosTypeAttributes::Plain =>
+                    if newtype.attributes() != WholeLogosTypeAttributes::Plain
+                        || reference_uses_external_path(newtype.wrapped(), resolver) =>
                 {
                     render_newtype(newtype, resolver)?
                 }
@@ -329,7 +330,16 @@ impl RustLogos {
                 )?,
                 WholeLogosItem::Struct(structure) => render_struct(structure, resolver)?,
                 WholeLogosItem::Enumeration(enumeration)
-                    if enumeration.attributes() != WholeLogosTypeAttributes::Plain =>
+                    if enumeration.attributes() != WholeLogosTypeAttributes::Plain
+                        || enumeration.variants().iter().any(|variant| {
+                            matches!(
+                                variant.payload(),
+                                WholeLogosVariantPayload::Tuple(fields)
+                                    if fields.fields().iter().any(|field| {
+                                        reference_uses_external_path(field, resolver)
+                                    })
+                            )
+                        }) =>
                 {
                     render_enumeration(enumeration, resolver)?
                 }
@@ -1034,6 +1044,21 @@ fn render_reference<Resolver: RustEmissionResolver + ?Sized>(
                 syn::parse2::<syn::Type>(quote::quote!(#head<#payload>))
                     .map_err(|error| Error::Project(error.to_string()))
             }
+        }
+    }
+}
+
+fn reference_uses_external_path<Resolver: RustEmissionResolver + ?Sized>(
+    reference: &WholeLogosTypeReference,
+    resolver: &Resolver,
+) -> bool {
+    match reference {
+        WholeLogosTypeReference::Identity(identity) => {
+            resolver.external_type_path(identity).is_some()
+        }
+        WholeLogosTypeReference::Application(application) => {
+            resolver.external_type_path(application.head()).is_some()
+                || reference_uses_external_path(application.payload(), resolver)
         }
     }
 }
