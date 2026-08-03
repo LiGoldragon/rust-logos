@@ -13,8 +13,9 @@ use core_logos::{
 };
 use name_table::{LocalEncodedId, Name};
 use rust_logos::{
-    FixtureRustEmittedIdentifier, FixtureRustNameProjectionTable, FixtureRustVocabulary,
-    FixtureRustVocabularyIds, RustLogos,
+    Error, FixtureRustEmittedIdentifier, FixtureRustNameProjectionTable, FixtureRustVocabulary,
+    FixtureRustVocabularyIds, InterfaceRustEmission, InterfaceRustRoleIds, RustEncodedIdCodec,
+    RustLogos,
 };
 use signal_sema_translator::{VocabularyEncodedId, VocabularyRoot};
 use structural_codec::EncodedNameResolver;
@@ -282,4 +283,161 @@ fn wire_policy_projects_the_existing_interface_attribute_preamble() {
         "{emitted}"
     );
     assert!(emitted.contains("Batch(Payload)"), "{emitted}");
+}
+
+#[test]
+fn interface_roles_compile_and_refusal_display_is_real_behavior() {
+    let input_role = universal(60);
+    let output_role = universal(61);
+    let refusal_role = universal(62);
+    let input = universal(63);
+    let output = universal(64);
+    let refusal = universal(65);
+    let payload = universal(66);
+    let roles = InterfaceRustRoleIds::new(
+        input_role.clone(),
+        output_role.clone(),
+        refusal_role.clone(),
+    )
+    .expect("distinct Universal roles");
+    let logos = WholeLogos::new(vec![
+        WholeLogosItem::Newtype(WholeLogosNewtype::new(
+            WholeLogosVisibility::Public,
+            input.clone(),
+            WholeLogosVisibility::Private,
+            reference(&payload),
+        )),
+        WholeLogosItem::TraitImpl(WholeLogosTraitImpl::new(
+            reference(&input_role),
+            reference(&input),
+            Vec::new(),
+        )),
+        WholeLogosItem::Newtype(WholeLogosNewtype::new(
+            WholeLogosVisibility::Public,
+            output.clone(),
+            WholeLogosVisibility::Private,
+            reference(&payload),
+        )),
+        WholeLogosItem::TraitImpl(WholeLogosTraitImpl::new(
+            reference(&output_role),
+            reference(&output),
+            Vec::new(),
+        )),
+        WholeLogosItem::Struct(WholeLogosStruct::new(
+            WholeLogosVisibility::Public,
+            refusal.clone(),
+            vec![reference(&payload)],
+        )),
+        WholeLogosItem::TraitImpl(WholeLogosTraitImpl::new(
+            reference(&refusal_role),
+            reference(&refusal),
+            Vec::new(),
+        )),
+    ]);
+    let mut allocated = Names::default();
+    for identity in [
+        &input_role,
+        &output_role,
+        &refusal_role,
+        &input,
+        &output,
+        &refusal,
+        &payload,
+    ] {
+        allocated.add(identity.clone(), "allocated");
+    }
+    let emitted = rust_logos()
+        .emit_interface(&logos, &allocated, &roles)
+        .expect("emit complete Interface role behavior");
+
+    let input_role = RustEncodedIdCodec::encode(&input_role);
+    let output_role = RustEncodedIdCodec::encode(&output_role);
+    let refusal_role = RustEncodedIdCodec::encode(&refusal_role);
+    let input = RustEncodedIdCodec::encode(&input);
+    let output = RustEncodedIdCodec::encode(&output);
+    let refusal = RustEncodedIdCodec::encode(&refusal);
+    let payload = RustEncodedIdCodec::encode(&payload);
+    assert!(
+        emitted.contains(&format!("impl {input_role} for {input}")),
+        "{emitted}"
+    );
+    assert!(
+        emitted.contains(&format!("impl {output_role} for {output}")),
+        "{emitted}"
+    );
+    assert!(
+        emitted.contains(&format!("impl std::error::Error for {refusal}")),
+        "{emitted}"
+    );
+    assert!(!emitted.contains("impl From<"), "{emitted}");
+
+    let temporary =
+        std::env::temp_dir().join(format!("rust-logos-interface-{}", std::process::id()));
+    if temporary.exists() {
+        fs::remove_dir_all(&temporary).expect("clear prior scratch crate");
+    }
+    fs::create_dir_all(temporary.join("src")).expect("scratch source directory");
+    fs::write(
+        temporary.join("Cargo.toml"),
+        "[package]\nname = \"interface-role-projection\"\nversion = \"0.0.0\"\nedition = \"2024\"\n",
+    )
+    .expect("scratch manifest");
+    fs::write(
+        temporary.join("src/main.rs"),
+        format!(
+            "pub trait {input_role} {{}}\npub trait {output_role} {{}}\npub trait {refusal_role}: std::error::Error {{}}\npub type {payload} = u64;\n{emitted}\nimpl std::fmt::Debug for {refusal} {{ fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {{ write!(formatter, \"Denied({{}})\", self.field_0) }} }}\nfn assert_input<T: {input_role}>() {{}}\nfn assert_output<T: {output_role}>() {{}}\nfn assert_refusal<T: {refusal_role}>() {{}}\nfn main() {{ assert_input::<{input}>(); assert_output::<{output}>(); assert_refusal::<{refusal}>(); let denied = {refusal} {{ field_0: 7 }}; let error: &dyn std::error::Error = &denied; assert_eq!(error.to_string(), \"Denied(7)\"); }}\n"
+        ),
+    )
+    .expect("scratch generated source");
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--offline", "--jobs", "2"])
+        .current_dir(&temporary)
+        .env("CARGO_TARGET_DIR", temporary.join("target"))
+        .output()
+        .expect("run scratch Interface witness");
+    assert!(
+        output.status.success(),
+        "scratch Cargo stderr:\n{}\ngenerated:\n{emitted}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    fs::remove_dir_all(&temporary).expect("remove scratch crate");
+}
+
+#[test]
+fn refusal_membership_refuses_unruled_associated_type_behavior() {
+    let input_role = universal(70);
+    let output_role = universal(71);
+    let refusal_role = universal(72);
+    let refusal = universal(73);
+    let associated_name = universal(74);
+    let associated_value = universal(75);
+    let roles = InterfaceRustRoleIds::new(
+        input_role.clone(),
+        output_role.clone(),
+        refusal_role.clone(),
+    )
+    .expect("distinct Universal roles");
+    let logos = WholeLogos::new(vec![WholeLogosItem::TraitImpl(WholeLogosTraitImpl::new(
+        reference(&refusal_role),
+        reference(&refusal),
+        vec![WholeLogosAssociatedTypeBinding::new(
+            associated_name.clone(),
+            reference(&associated_value),
+        )],
+    ))]);
+    let mut allocated = Names::default();
+    for identity in [
+        input_role,
+        output_role,
+        refusal_role,
+        refusal,
+        associated_name,
+        associated_value,
+    ] {
+        allocated.add(identity, "allocated");
+    }
+    assert!(matches!(
+        rust_logos().emit_interface(&logos, &allocated, &roles),
+        Err(Error::RefusalImplementationAssociatedTypes { found: 1 })
+    ));
 }

@@ -171,6 +171,24 @@ pub enum Error {
         found: usize,
     },
 
+    /// Two configured Interface roles were assigned the same identity.
+    #[error("Interface roles {first_role} and {second_role} share identity {identity:?}")]
+    DuplicateInterfaceRoleIdentity {
+        /// First configured role.
+        first_role: &'static str,
+        /// Second configured role.
+        second_role: &'static str,
+        /// Reused Universal identity.
+        identity: VocabularyEncodedId,
+    },
+
+    /// A Refusal membership carried behavior not present in the marker trait.
+    #[error("Refusal membership must not bind associated types, found {found}")]
+    RefusalImplementationAssociatedTypes {
+        /// Number of structurally unsupported bindings.
+        found: usize,
+    },
+
     /// A sealed typed record returned a value under a different role or value
     /// kind than its record declares.
     #[error("shared evaluator did not return the declared {position} typed position")]

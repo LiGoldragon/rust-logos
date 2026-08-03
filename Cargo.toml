@@ -1,6 +1,6 @@
 [package]
 name         = "rust-logos"
-version      = "0.22.0"
+version      = "0.23.0"
 autotests    = false
 edition      = "2024"
 rust-version = "1.85"

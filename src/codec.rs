@@ -29,6 +29,79 @@ use crate::fixture_vocabulary::{
 };
 use crate::{Error, FixtureRustNameProjectionTable, RustEncodedIdCodec};
 
+/// Interface-specific Rust assembly over already structural Whole Logos.
+pub trait InterfaceRustEmission {
+    /// Emit role memberships and the structurally required refusal behavior.
+    fn emit_interface<Allocated: EncodedNameResolver<VocabularyRoot> + ?Sized>(
+        &self,
+        logos: &WholeLogos,
+        allocated: &Allocated,
+        roles: &InterfaceRustRoleIds,
+    ) -> Result<String, Error>;
+}
+
+/// The three exact universal Interface role identities used during assembly.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InterfaceRustRoleIds {
+    input: VocabularyEncodedId,
+    output: VocabularyEncodedId,
+    refusal: VocabularyEncodedId,
+}
+
+// Trait exception — too trivial: validated construction and read-only access
+// for one Rust assembly configuration record.
+impl InterfaceRustRoleIds {
+    /// Validate three distinct Universal role identities.
+    pub fn new(
+        input: VocabularyEncodedId,
+        output: VocabularyEncodedId,
+        refusal: VocabularyEncodedId,
+    ) -> Result<Self, Error> {
+        validate_universal("Interface Input role", &input)?;
+        validate_universal("Interface Output role", &output)?;
+        validate_universal("Interface Refusal role", &refusal)?;
+        Self::validate_distinct("Input", &input, "Output", &output)?;
+        Self::validate_distinct("Input", &input, "Refusal", &refusal)?;
+        Self::validate_distinct("Output", &output, "Refusal", &refusal)?;
+        Ok(Self {
+            input,
+            output,
+            refusal,
+        })
+    }
+
+    /// Universal Input marker-trait identity.
+    pub const fn input(&self) -> &VocabularyEncodedId {
+        &self.input
+    }
+
+    /// Universal Output marker-trait identity.
+    pub const fn output(&self) -> &VocabularyEncodedId {
+        &self.output
+    }
+
+    /// Universal Refusal marker-trait identity.
+    pub const fn refusal(&self) -> &VocabularyEncodedId {
+        &self.refusal
+    }
+
+    fn validate_distinct(
+        first_role: &'static str,
+        first: &VocabularyEncodedId,
+        second_role: &'static str,
+        second: &VocabularyEncodedId,
+    ) -> Result<(), Error> {
+        if first == second {
+            return Err(Error::DuplicateInterfaceRoleIdentity {
+                first_role,
+                second_role,
+                identity: first.clone(),
+            });
+        }
+        Ok(())
+    }
+}
+
 /// Bidirectional Rust view for the bounded fixture breadth.
 pub struct RustLogos {
     vocabulary: FixtureRustVocabulary,
@@ -127,7 +200,7 @@ impl RustLogos {
             vocabulary: &self.vocabulary,
             projections,
         };
-        self.emit_with_resolver(logos, &resolver)
+        self.emit_with_resolver(logos, &resolver, None)
     }
 
     /// Emit production Rust names directly from complete encoded-ID chains.
@@ -148,13 +221,14 @@ impl RustLogos {
             allocated,
             generated,
         };
-        self.emit_with_resolver(logos, &resolver)
+        self.emit_with_resolver(logos, &resolver, None)
     }
 
     fn emit_with_resolver<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
         &self,
         logos: &WholeLogos,
         resolver: &Resolver,
+        interface_roles: Option<&InterfaceRustRoleIds>,
     ) -> Result<String, Error> {
         let evaluator = StructuralEvaluator::<VocabularyRoot, FixtureRustRule>::new(
             self.vocabulary.structuretree(),
@@ -187,7 +261,7 @@ impl RustLogos {
                     render_trait_definition(trait_definition, resolver)?
                 }
                 WholeLogosItem::TraitImpl(trait_implementation) => {
-                    render_trait_implementation(trait_implementation, resolver)?
+                    render_trait_implementation(trait_implementation, resolver, interface_roles)?
                 }
             };
             items.push(rendered);
@@ -553,6 +627,23 @@ impl RustLogos {
     }
 }
 
+impl InterfaceRustEmission for RustLogos {
+    fn emit_interface<Allocated: EncodedNameResolver<VocabularyRoot> + ?Sized>(
+        &self,
+        logos: &WholeLogos,
+        allocated: &Allocated,
+        roles: &InterfaceRustRoleIds,
+    ) -> Result<String, Error> {
+        let generated = generated_names(logos, allocated)?;
+        let resolver = ProductionResolver {
+            vocabulary: &self.vocabulary,
+            allocated,
+            generated,
+        };
+        self.emit_with_resolver(logos, &resolver, Some(roles))
+    }
+}
+
 fn reflect_visibility(
     visibility: &WholeLogosVisibility,
     public_keyword: &VocabularyEncodedId,
@@ -698,7 +789,15 @@ fn render_trait_method<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
 fn render_trait_implementation<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
     trait_implementation: &WholeLogosTraitImpl,
     resolver: &Resolver,
+    interface_roles: Option<&InterfaceRustRoleIds>,
 ) -> Result<String, Error> {
+    if matches!(
+        trait_implementation.implemented_trait(),
+        WholeLogosTypeReference::Identity(identity)
+            if interface_roles.is_some_and(|roles| identity == roles.refusal())
+    ) {
+        return render_refusal_implementation(trait_implementation, resolver);
+    }
     let implemented_trait = render_reference(trait_implementation.implemented_trait(), resolver)?;
     let implementing_type = render_reference(trait_implementation.implementing_type(), resolver)?;
     let bindings = trait_implementation
@@ -707,6 +806,40 @@ fn render_trait_implementation<Resolver: EncodedNameResolver<VocabularyRoot> + ?
         .map(|binding| render_associated_type_binding(binding, resolver))
         .collect::<Result<Vec<_>, Error>>()?;
     canonical_item(quote::quote!(impl #implemented_trait for #implementing_type { #(#bindings)* }))
+}
+
+fn render_refusal_implementation<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
+    trait_implementation: &WholeLogosTraitImpl,
+    resolver: &Resolver,
+) -> Result<String, Error> {
+    if !trait_implementation.associated_type_bindings().is_empty() {
+        return Err(Error::RefusalImplementationAssociatedTypes {
+            found: trait_implementation.associated_type_bindings().len(),
+        });
+    }
+    let refusal_trait = render_reference(trait_implementation.implemented_trait(), resolver)?;
+    let implementing_type = render_reference(trait_implementation.implementing_type(), resolver)?;
+    let membership = canonical_item(quote::quote!(
+        impl #refusal_trait for #implementing_type {}
+    ))?;
+    // [assumption primary-vq6.5-A1 — refusal Display assembly]
+    // Interface refusals carry no authored display template. Delegating to the
+    // wire type's structural Debug rendering is deterministic and adds no
+    // internal-to-public conversion or semantic content.
+    let display = canonical_item(quote::quote!(
+        impl std::fmt::Display for #implementing_type {
+            fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                std::fmt::Debug::fmt(self, formatter)
+            }
+        }
+    ))?;
+    let error = canonical_item(quote::quote!(
+        impl std::error::Error for #implementing_type {}
+    ))?;
+    Ok(RenderedFixtureDocument(vec![membership, display, error])
+        .to_string()
+        .trim_end()
+        .to_owned())
 }
 
 fn render_associated_type_binding<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
