@@ -291,7 +291,33 @@ fn stored_policy_and_table_shape_project_to_the_sema_engine_trait() {
     let field = universal(51);
     let key = universal(52);
     let table = universal(53);
+    let stored_newtype = universal(54);
+    let stored_enumeration = universal(55);
+    let stored_variant = universal(56);
     let logos = WholeLogos::new(vec![
+        WholeLogosItem::Newtype(
+            WholeLogosNewtype::new(
+                WholeLogosVisibility::Public,
+                stored_newtype.clone(),
+                WholeLogosVisibility::Private,
+                reference(&field),
+            )
+            .with_attributes(WholeLogosTypeAttributes::Stored),
+        ),
+        WholeLogosItem::Enumeration(
+            WholeLogosEnumeration::new(
+                WholeLogosVisibility::Public,
+                stored_enumeration.clone(),
+                vec![WholeLogosVariant::new(
+                    stored_variant.clone(),
+                    WholeLogosVariantPayload::Tuple(
+                        WholeLogosTupleFields::new(vec![reference(&field)])
+                            .expect("single stored payload"),
+                    ),
+                )],
+            )
+            .with_attributes(WholeLogosTypeAttributes::Stored),
+        ),
         WholeLogosItem::Struct(
             WholeLogosStruct::new(
                 WholeLogosVisibility::Public,
@@ -314,12 +340,17 @@ fn stored_policy_and_table_shape_project_to_the_sema_engine_trait() {
                 (field, "Entry"),
                 (key, "Domain"),
                 (table.clone(), "Records"),
+                (stored_newtype, "StoredNewtype"),
+                (stored_enumeration, "StoredEnumeration"),
+                (stored_variant, "StoredVariant"),
             ]),
         )
         .expect("project stored record and table");
 
-    assert!(emitted.contains("rkyv::Archive"), "{emitted}");
+    assert_eq!(emitted.matches("rkyv::Archive").count(), 3, "{emitted}");
     assert!(!emitted.contains("nota::NotaDecode"), "{emitted}");
+    assert!(emitted.contains("pub struct StoredNewtype"), "{emitted}");
+    assert!(emitted.contains("pub enum StoredEnumeration"), "{emitted}");
     assert!(emitted.contains("pub struct Records;"), "{emitted}");
     assert!(
         emitted.contains("impl sema_engine::TableSpecification for Records"),

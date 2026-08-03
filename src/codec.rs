@@ -237,7 +237,7 @@ impl RustLogos {
         for item in logos.items() {
             let rendered = match item {
                 WholeLogosItem::Newtype(newtype)
-                    if newtype.attributes() == WholeLogosTypeAttributes::Wire =>
+                    if newtype.attributes() != WholeLogosTypeAttributes::Plain =>
                 {
                     render_newtype(newtype, resolver)?
                 }
@@ -248,7 +248,7 @@ impl RustLogos {
                 )?,
                 WholeLogosItem::Struct(structure) => render_struct(structure, resolver)?,
                 WholeLogosItem::Enumeration(enumeration)
-                    if enumeration.attributes() == WholeLogosTypeAttributes::Wire =>
+                    if enumeration.attributes() != WholeLogosTypeAttributes::Plain =>
                 {
                     render_enumeration(enumeration, resolver)?
                 }
