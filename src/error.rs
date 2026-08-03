@@ -189,6 +189,14 @@ pub enum Error {
         found: usize,
     },
 
+    /// A typed WholeLogos table could not produce its content-derived schema
+    /// identity before Rust assembly.
+    #[error("Sema table schema hash failed: {message}")]
+    TableSchemaHash {
+        /// Portable archive failure without record or key contents.
+        message: String,
+    },
+
     /// A sealed typed record returned a value under a different role or value
     /// kind than its record declares.
     #[error("shared evaluator did not return the declared {position} typed position")]

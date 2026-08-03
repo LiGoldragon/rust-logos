@@ -6,7 +6,7 @@ use std::process::Command;
 
 use core_logos::{
     WholeLogos, WholeLogosAssociatedTypeBinding, WholeLogosEnumeration, WholeLogosItem,
-    WholeLogosNewtype, WholeLogosStruct, WholeLogosTraitDef, WholeLogosTraitImpl,
+    WholeLogosNewtype, WholeLogosStruct, WholeLogosTable, WholeLogosTraitDef, WholeLogosTraitImpl,
     WholeLogosTraitMethod, WholeLogosTupleFields, WholeLogosTypeApplication,
     WholeLogosTypeAttributes, WholeLogosTypeReference, WholeLogosVariant, WholeLogosVariantPayload,
     WholeLogosVisibility,
@@ -283,6 +283,61 @@ fn wire_policy_projects_the_existing_interface_attribute_preamble() {
         "{emitted}"
     );
     assert!(emitted.contains("Batch(Payload)"), "{emitted}");
+}
+
+#[test]
+fn stored_policy_and_table_shape_project_to_the_sema_engine_trait() {
+    let record = universal(50);
+    let field = universal(51);
+    let key = universal(52);
+    let table = universal(53);
+    let logos = WholeLogos::new(vec![
+        WholeLogosItem::Struct(
+            WholeLogosStruct::new(
+                WholeLogosVisibility::Public,
+                record.clone(),
+                vec![reference(&field)],
+            )
+            .with_attributes(WholeLogosTypeAttributes::Stored),
+        ),
+        WholeLogosItem::Table(WholeLogosTable::new(
+            table.clone(),
+            reference(&record),
+            reference(&key),
+        )),
+    ]);
+    let emitted = rust_logos()
+        .emit_fixture(
+            &logos,
+            &projections(&[
+                (record, "StoredRecord"),
+                (field, "Entry"),
+                (key, "Domain"),
+                (table.clone(), "Records"),
+            ]),
+        )
+        .expect("project stored record and table");
+
+    assert!(emitted.contains("rkyv::Archive"), "{emitted}");
+    assert!(!emitted.contains("nota::NotaDecode"), "{emitted}");
+    assert!(emitted.contains("pub struct Records;"), "{emitted}");
+    assert!(
+        emitted.contains("impl sema_engine::TableSpecification for Records"),
+        "{emitted}"
+    );
+    assert!(emitted.contains("type Record = StoredRecord;"), "{emitted}");
+    assert!(emitted.contains("type Key = Domain;"), "{emitted}");
+    assert!(
+        emitted.contains("sema_engine::TableName::new(\"Records\")"),
+        "{emitted}"
+    );
+    assert!(
+        emitted.contains(&format!(
+            "const FAMILY_NAME: &'static str = \"{}\";",
+            RustEncodedIdCodec::encode(&table)
+        )),
+        "{emitted}"
+    );
 }
 
 #[test]

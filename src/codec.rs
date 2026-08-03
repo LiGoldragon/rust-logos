@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use core_logos::{
     WholeLogos, WholeLogosAssociatedTypeBinding, WholeLogosEnumeration, WholeLogosItem,
-    WholeLogosNewtype, WholeLogosStruct, WholeLogosTraitDef, WholeLogosTraitImpl,
+    WholeLogosNewtype, WholeLogosStruct, WholeLogosTable, WholeLogosTraitDef, WholeLogosTraitImpl,
     WholeLogosTraitMethod, WholeLogosTupleFields, WholeLogosTypeApplication,
     WholeLogosTypeAttributes, WholeLogosTypeReference, WholeLogosVariant, WholeLogosVariantPayload,
     WholeLogosVisibility,
@@ -263,6 +263,7 @@ impl RustLogos {
                 WholeLogosItem::TraitImpl(trait_implementation) => {
                     render_trait_implementation(trait_implementation, resolver, interface_roles)?
                 }
+                WholeLogosItem::Table(table) => render_table(table, resolver)?,
             };
             items.push(rendered);
         }
@@ -314,6 +315,11 @@ impl RustLogos {
                         require_projection("associated type name", binding.name(), projections)?;
                         self.validate_reference(binding.value(), projections)?;
                     }
+                }
+                WholeLogosItem::Table(table) => {
+                    require_projection("table name", table.name(), projections)?;
+                    self.validate_reference(table.record(), projections)?;
+                    self.validate_reference(table.key(), projections)?;
                 }
             }
         }
@@ -748,7 +754,55 @@ fn render_type_attributes(attributes: WholeLogosTypeAttributes) -> proc_macro2::
                 Eq
             )]
         ),
+        WholeLogosTypeAttributes::Stored => quote::quote!(
+            #[derive(
+                rkyv::Archive,
+                rkyv::Serialize,
+                rkyv::Deserialize,
+                Clone,
+                Debug,
+                PartialEq,
+                Eq
+            )]
+        ),
     }
+}
+
+fn render_table<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
+    table: &WholeLogosTable,
+    resolver: &Resolver,
+) -> Result<String, Error> {
+    let specification = resolved_identifier("table name", table.name(), resolver)?;
+    let coordinate = resolved_spelling("table name", table.name(), resolver)?;
+    let coordinate = syn::LitStr::new(&coordinate, proc_macro2::Span::call_site());
+    let family = RustEncodedIdCodec::encode(table.name());
+    let family = syn::LitStr::new(&family, proc_macro2::Span::call_site());
+    let record = render_reference(table.record(), resolver)?;
+    let key = render_reference(table.key(), resolver)?;
+    let schema_hash = table
+        .schema_hash()
+        .map_err(|source| Error::TableSchemaHash {
+            message: source.to_string(),
+        })?
+        .into_iter()
+        .map(proc_macro2::Literal::u8_unsuffixed)
+        .collect::<Vec<_>>();
+    let declaration = canonical_item(quote::quote!(pub struct #specification;))?;
+    let implementation = canonical_item(quote::quote!(
+        impl sema_engine::TableSpecification for #specification {
+            type Record = #record;
+            type Key = #key;
+
+            const TABLE_NAME: sema_engine::TableName = sema_engine::TableName::new(#coordinate);
+            const FAMILY_NAME: &'static str = #family;
+            const SCHEMA_HASH: sema_engine::SchemaHash =
+                sema_engine::SchemaHash::new([#(#schema_hash),*]);
+        }
+    ))?;
+    Ok(RenderedFixtureDocument(vec![declaration, implementation])
+        .to_string()
+        .trim_end()
+        .to_owned())
 }
 
 fn render_trait_definition<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
@@ -1032,6 +1086,11 @@ fn generated_names<Allocated: EncodedNameResolver<VocabularyRoot> + ?Sized>(
                     )?;
                     validate_production_reference(binding.value(), allocated, &mut generated)?;
                 }
+            }
+            WholeLogosItem::Table(table) => {
+                insert_generated("table name", table.name(), allocated, &mut generated)?;
+                validate_production_reference(table.record(), allocated, &mut generated)?;
+                validate_production_reference(table.key(), allocated, &mut generated)?;
             }
         }
     }
