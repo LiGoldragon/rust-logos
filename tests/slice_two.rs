@@ -6,10 +6,12 @@ use std::process::Command;
 
 use core_logos::{
     WholeLogos, WholeLogosAssociatedTypeBinding, WholeLogosEnumeration, WholeLogosItem,
-    WholeLogosNewtype, WholeLogosStorageFingerprint, WholeLogosStruct, WholeLogosTable,
-    WholeLogosTraitDef, WholeLogosTraitImpl, WholeLogosTraitMethod, WholeLogosTupleFields,
-    WholeLogosTypeApplication, WholeLogosTypeAttributes, WholeLogosTypeParameter,
-    WholeLogosTypeReference, WholeLogosVariant, WholeLogosVariantPayload, WholeLogosVisibility,
+    WholeLogosNewtype, WholeLogosStorageFingerprint, WholeLogosStreamHandle,
+    WholeLogosStreamInitiation, WholeLogosStreamLifecycle, WholeLogosStreamTermination,
+    WholeLogosStruct, WholeLogosTable, WholeLogosTraitDef, WholeLogosTraitImpl,
+    WholeLogosTraitMethod, WholeLogosTupleFields, WholeLogosTypeApplication,
+    WholeLogosTypeAttributes, WholeLogosTypeParameter, WholeLogosTypeReference, WholeLogosVariant,
+    WholeLogosVariantPayload, WholeLogosVisibility,
 };
 use name_table::{LocalEncodedId, Name};
 use rust_logos::{
@@ -117,7 +119,7 @@ fn projections(entries: &[(VocabularyEncodedId, &'static str)]) -> FixtureRustNa
 }
 
 #[test]
-fn struct_trait_and_associated_type_impl_project_to_compiling_rust() {
+fn whole_logos_stream_lifecycle_projects_to_compiling_rust() {
     let decision_context = universal(20);
     let entry = universal(21);
     let vector = universal(22);
@@ -125,16 +127,17 @@ fn struct_trait_and_associated_type_impl_project_to_compiling_rust() {
     let record_decision = universal(24);
     let admission_decision = universal(25);
     let unit = universal(26);
-    let stream_open = universal(27);
-    let filter = universal(28);
-    let stream = universal(29);
-    let observer = universal(30);
-    let receipt_name = universal(31);
-    let receipt = universal(32);
+    let observer_stream = universal(27);
+    let observer_filter = universal(28);
+    let observer_handle = universal(29);
+    let observation_event = universal(30);
+    let initiation_refusal = universal(31);
+    let termination_input = universal(32);
     let result = universal(33);
     let ordered = universal(34);
     let error = universal(35);
     let wire_result = universal(36);
+    let termination_refusal = universal(37);
     let logos = WholeLogos::new(vec![
         WholeLogosItem::Newtype(
             WholeLogosNewtype::new(
@@ -199,13 +202,19 @@ fn struct_trait_and_associated_type_impl_project_to_compiling_rust() {
                 reference(&unit),
             )],
         )),
-        WholeLogosItem::TraitImpl(WholeLogosTraitImpl::new(
-            reference(&stream_open),
-            reference(&filter),
-            vec![
-                WholeLogosAssociatedTypeBinding::new(stream.clone(), reference(&observer)),
-                WholeLogosAssociatedTypeBinding::new(receipt_name.clone(), reference(&receipt)),
-            ],
+        WholeLogosItem::StreamLifecycle(WholeLogosStreamLifecycle::new(
+            observer_stream.clone(),
+            WholeLogosStreamInitiation::new(
+                universal(38),
+                reference(&observer_filter),
+                WholeLogosStreamHandle::new(observer_handle.clone(), reference(&observation_event)),
+                initiation_refusal.clone(),
+            ),
+            WholeLogosStreamTermination::new(
+                termination_input.clone(),
+                observer_handle.clone(),
+                termination_refusal.clone(),
+            ),
         )),
     ]);
     let projected = projections(&[
@@ -216,16 +225,18 @@ fn struct_trait_and_associated_type_impl_project_to_compiling_rust() {
         (record_decision, "recordDecision"),
         (admission_decision, "AdmissionDecision"),
         (unit, "Unit"),
-        (stream_open, "StreamOpen"),
-        (filter, "Filter"),
-        (stream, "Stream"),
-        (observer, "Observer"),
-        (receipt_name, "Receipt"),
-        (receipt, "ObserverReceipt"),
+        (observer_stream, "ObserverStream"),
+        (observer_filter, "ObserverFilter"),
+        (observer_handle, "ObserverHandle"),
+        (observation_event, "ObservationEvent"),
+        (initiation_refusal, "ObserverInitiationRefusal"),
+        (termination_input, "ObserverTermination"),
         (result, "Result"),
         (ordered, "Ordered"),
         (error, "Error"),
         (wire_result, "WireResult"),
+        (termination_refusal, "ObserverTerminationRefusal"),
+        (universal(38), "ObserverInitiation"),
     ]);
     let emitted = rust_logos()
         .emit_fixture(&logos, &projected)
@@ -250,10 +261,24 @@ fn struct_trait_and_associated_type_impl_project_to_compiling_rust() {
         emitted.contains("fn record_decision(&self, parameter_0: AdmissionDecision) -> Unit;"),
         "{emitted}"
     );
-    assert!(emitted.contains("impl StreamOpen for Filter"), "{emitted}");
-    assert!(emitted.contains("type Stream = Observer;"), "{emitted}");
     assert!(
-        emitted.contains("type Receipt = ObserverReceipt;"),
+        emitted.contains("pub struct ObserverInitiation {\n    pub query: ObserverFilter,"),
+        "{emitted}"
+    );
+    assert!(
+        emitted.contains("pub type ObserverHandle = protos::Stream<ObservationEvent>;"),
+        "{emitted}"
+    );
+    assert!(
+        emitted.contains("pub struct ObserverTermination {\n    pub stream: ObserverHandle,"),
+        "{emitted}"
+    );
+    assert!(
+        emitted.contains("impl protos::Refusal for ObserverInitiationRefusal {}"),
+        "{emitted}"
+    );
+    assert!(
+        emitted.contains("impl protos::Refusal for ObserverTerminationRefusal {}"),
         "{emitted}"
     );
 
@@ -271,7 +296,7 @@ fn struct_trait_and_associated_type_impl_project_to_compiling_rust() {
     fs::write(
         temporary.join("src/main.rs"),
         format!(
-            "pub struct Entry;\npub struct AdmissionDecision;\npub type Unit = ();\npub struct Filter;\npub struct Observer;\npub struct ObserverReceipt;\n#[derive(Eq, PartialEq, Ord, PartialOrd)]\npub struct Ordered;\npub struct Error;\npub trait StreamOpen {{ type Stream; type Receipt; }}\n{emitted}\nfn main() {{ let _ = DecisionContext {{ field_0: Entry, field_1: Vec::new(), field_2: Ok(Vec::new()) }}; let _ = WireResult::<Ordered>(Ok(vec![Ordered])); }}\n"
+            "mod protos {{\n    pub trait Input {{}}\n    pub trait Refusal: std::error::Error {{}}\n    pub struct Stream<Event>(pub std::marker::PhantomData<Event>);\n}}\npub struct Entry;\npub struct AdmissionDecision;\npub type Unit = ();\npub struct ObserverFilter;\npub struct ObservationEvent;\n#[derive(Eq, PartialEq, Ord, PartialOrd)]\npub struct Ordered;\npub struct Error;\n{emitted}\nfn assert_input<T: protos::Input>() {{}}\nfn assert_refusal<T: protos::Refusal>() {{}}\nfn main() {{\n    let _ = DecisionContext {{ field_0: Entry, field_1: Vec::new(), field_2: Ok(Vec::new()) }};\n    let _ = WireResult::<Ordered>(Ok(vec![Ordered]));\n    let _ = ObserverInitiation {{ query: ObserverFilter }};\n    let _ = ObserverTermination {{ stream: protos::Stream(std::marker::PhantomData::<ObservationEvent>) }};\n    assert_input::<ObserverInitiation>();\n    assert_input::<ObserverTermination>();\n    assert_refusal::<ObserverInitiationRefusal>();\n    assert_refusal::<ObserverTerminationRefusal>();\n}}\n"
         ),
     )
     .expect("scratch generated source");

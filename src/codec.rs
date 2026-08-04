@@ -4,10 +4,10 @@ use std::collections::BTreeMap;
 
 use core_logos::{
     WholeLogos, WholeLogosAssociatedTypeBinding, WholeLogosEnumeration, WholeLogosItem,
-    WholeLogosNewtype, WholeLogosStruct, WholeLogosTable, WholeLogosTraitDef, WholeLogosTraitImpl,
-    WholeLogosTraitMethod, WholeLogosTupleFields, WholeLogosTypeApplication,
-    WholeLogosTypeAttributes, WholeLogosTypeParameter, WholeLogosTypeReference, WholeLogosVariant,
-    WholeLogosVariantPayload, WholeLogosVisibility,
+    WholeLogosNewtype, WholeLogosStreamLifecycle, WholeLogosStruct, WholeLogosTable,
+    WholeLogosTraitDef, WholeLogosTraitImpl, WholeLogosTraitMethod, WholeLogosTupleFields,
+    WholeLogosTypeApplication, WholeLogosTypeAttributes, WholeLogosTypeParameter,
+    WholeLogosTypeReference, WholeLogosVariant, WholeLogosVariantPayload, WholeLogosVisibility,
 };
 use name_table::Name;
 use raw_discovery::{
@@ -385,6 +385,9 @@ impl RustLogos {
                     render_trait_implementation(trait_implementation, resolver, interface_roles)?
                 }
                 WholeLogosItem::Table(table) => render_table(table, resolver)?,
+                WholeLogosItem::StreamLifecycle(lifecycle) => {
+                    render_stream_lifecycle(lifecycle, resolver)?
+                }
             };
             items.push(rendered);
         }
@@ -445,6 +448,36 @@ impl RustLogos {
                     require_projection("table name", table.name(), projections)?;
                     self.validate_reference(table.record(), projections)?;
                     self.validate_reference(table.key(), projections)?;
+                }
+                WholeLogosItem::StreamLifecycle(lifecycle) => {
+                    require_projection("stream name", lifecycle.stream(), projections)?;
+                    require_projection(
+                        "stream initiation input",
+                        lifecycle.initiation().input(),
+                        projections,
+                    )?;
+                    self.validate_reference(lifecycle.initiation().query(), projections)?;
+                    require_projection(
+                        "stream handle",
+                        lifecycle.initiation().success().identity(),
+                        projections,
+                    )?;
+                    self.validate_reference(lifecycle.initiation().success().event(), projections)?;
+                    require_projection(
+                        "stream initiation refusal",
+                        lifecycle.initiation().refusal(),
+                        projections,
+                    )?;
+                    require_projection(
+                        "stream termination input",
+                        lifecycle.termination().input(),
+                        projections,
+                    )?;
+                    require_projection(
+                        "stream termination refusal",
+                        lifecycle.termination().refusal(),
+                        projections,
+                    )?;
                 }
             }
         }
@@ -990,6 +1023,104 @@ fn render_table<Resolver: RustEmissionResolver + ?Sized>(
         .to_owned())
 }
 
+/// Render the pure generated shape of one strict stream lifecycle.
+///
+/// Initiation returns the `protos::Stream<Event>` alias directly. Termination
+/// consumes that same alias through an independently named input, rather than
+/// adding a universal close trait or putting runtime ownership in Logos.
+fn render_stream_lifecycle<Resolver: RustEmissionResolver + ?Sized>(
+    lifecycle: &WholeLogosStreamLifecycle,
+    resolver: &Resolver,
+) -> Result<String, Error> {
+    let stream = resolved_identifier("stream name", lifecycle.stream(), resolver)?;
+    let initiation = resolved_identifier(
+        "stream initiation input",
+        lifecycle.initiation().input(),
+        resolver,
+    )?;
+    let query = render_reference(lifecycle.initiation().query(), resolver)?;
+    let handle = resolved_identifier(
+        "stream handle",
+        lifecycle.initiation().success().identity(),
+        resolver,
+    )?;
+    let event = render_reference(lifecycle.initiation().success().event(), resolver)?;
+    let initiation_refusal = resolved_identifier(
+        "stream initiation refusal",
+        lifecycle.initiation().refusal(),
+        resolver,
+    )?;
+    let termination = resolved_identifier(
+        "stream termination input",
+        lifecycle.termination().input(),
+        resolver,
+    )?;
+    let termination_refusal = resolved_identifier(
+        "stream termination refusal",
+        lifecycle.termination().refusal(),
+        resolver,
+    )?;
+    let stream_marker = canonical_item(quote::quote!(pub struct #stream;))?;
+    let initiation_input = canonical_item(quote::quote!(
+        pub struct #initiation {
+            pub query: #query,
+        }
+    ))?;
+    let initiation_input_role =
+        canonical_item(quote::quote!(impl protos::Input for #initiation {}))?;
+    let direct_success = canonical_item(quote::quote!(
+        pub type #handle = protos::Stream<#event>;
+    ))?;
+    let initiation_refusal_type = canonical_item(quote::quote!(
+        #[derive(Clone, Debug, Eq, PartialEq)]
+        pub struct #initiation_refusal;
+    ))?;
+    let initiation_refusal_display = render_stream_refusal(&initiation_refusal)?;
+    let termination_input = canonical_item(quote::quote!(
+        pub struct #termination {
+            pub stream: #handle,
+        }
+    ))?;
+    let termination_input_role =
+        canonical_item(quote::quote!(impl protos::Input for #termination {}))?;
+    let termination_refusal_type = canonical_item(quote::quote!(
+        #[derive(Clone, Debug, Eq, PartialEq)]
+        pub struct #termination_refusal;
+    ))?;
+    let termination_refusal_display = render_stream_refusal(&termination_refusal)?;
+    Ok(RenderedFixtureDocument(vec![
+        stream_marker,
+        initiation_input,
+        initiation_input_role,
+        direct_success,
+        initiation_refusal_type,
+        initiation_refusal_display,
+        termination_input,
+        termination_input_role,
+        termination_refusal_type,
+        termination_refusal_display,
+    ])
+    .to_string()
+    .trim_end()
+    .to_owned())
+}
+
+fn render_stream_refusal(refusal: &syn::Ident) -> Result<String, Error> {
+    let display = canonical_item(quote::quote!(
+        impl std::fmt::Display for #refusal {
+            fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                std::fmt::Debug::fmt(self, formatter)
+            }
+        }
+    ))?;
+    let error = canonical_item(quote::quote!(impl std::error::Error for #refusal {}))?;
+    let refusal = canonical_item(quote::quote!(impl protos::Refusal for #refusal {}))?;
+    Ok(RenderedFixtureDocument(vec![display, error, refusal])
+        .to_string()
+        .trim_end()
+        .to_owned())
+}
+
 fn render_trait_definition<Resolver: RustEmissionResolver + ?Sized>(
     trait_definition: &WholeLogosTraitDef,
     resolver: &Resolver,
@@ -1409,6 +1540,62 @@ fn generated_names<
                 insert_generated("table name", table.name(), allocated, types, &mut generated)?;
                 validate_production_reference(table.record(), allocated, types, &mut generated)?;
                 validate_production_reference(table.key(), allocated, types, &mut generated)?;
+            }
+            WholeLogosItem::StreamLifecycle(lifecycle) => {
+                insert_generated(
+                    "stream name",
+                    lifecycle.stream(),
+                    allocated,
+                    types,
+                    &mut generated,
+                )?;
+                insert_generated(
+                    "stream initiation input",
+                    lifecycle.initiation().input(),
+                    allocated,
+                    types,
+                    &mut generated,
+                )?;
+                validate_production_reference(
+                    lifecycle.initiation().query(),
+                    allocated,
+                    types,
+                    &mut generated,
+                )?;
+                insert_generated(
+                    "stream handle",
+                    lifecycle.initiation().success().identity(),
+                    allocated,
+                    types,
+                    &mut generated,
+                )?;
+                validate_production_reference(
+                    lifecycle.initiation().success().event(),
+                    allocated,
+                    types,
+                    &mut generated,
+                )?;
+                insert_generated(
+                    "stream initiation refusal",
+                    lifecycle.initiation().refusal(),
+                    allocated,
+                    types,
+                    &mut generated,
+                )?;
+                insert_generated(
+                    "stream termination input",
+                    lifecycle.termination().input(),
+                    allocated,
+                    types,
+                    &mut generated,
+                )?;
+                insert_generated(
+                    "stream termination refusal",
+                    lifecycle.termination().refusal(),
+                    allocated,
+                    types,
+                    &mut generated,
+                )?;
             }
         }
     }
