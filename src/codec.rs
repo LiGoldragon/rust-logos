@@ -47,11 +47,6 @@ const RUST_NAMING_TRANSLATIONS: &[RustNamingTranslation] = &[
         trait_bound: None,
     },
     RustNamingTranslation {
-        correct_name: "Text",
-        type_use: Some("String"),
-        trait_bound: None,
-    },
-    RustNamingTranslation {
         correct_name: "Ordered",
         type_use: None,
         trait_bound: Some("Ord"),
@@ -1916,10 +1911,6 @@ mod tests {
         assert_eq!(
             rust_textual_name(RustNamingPosition::TypeUse, "Vector"),
             "Vec"
-        );
-        assert_eq!(
-            rust_textual_name(RustNamingPosition::TypeUse, "Text"),
-            "String"
         );
         assert_eq!(
             rust_textual_name(RustNamingPosition::TypeUse, "Ordered"),
