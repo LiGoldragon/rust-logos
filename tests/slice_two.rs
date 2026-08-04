@@ -278,7 +278,17 @@ fn whole_logos_stream_lifecycle_projects_to_compiling_rust() {
         "{emitted}"
     );
     assert!(
+        emitted.contains("pub enum ObserverInitiationRefusal {\n    InvalidQuery,"),
+        "{emitted}"
+    );
+    assert!(
         emitted.contains("impl protos::Refusal for ObserverTerminationRefusal {}"),
+        "{emitted}"
+    );
+    assert!(
+        emitted.contains(
+            "pub enum ObserverTerminationRefusal {\n    UnknownStream,\n    AlreadyClosed,"
+        ),
         "{emitted}"
     );
 

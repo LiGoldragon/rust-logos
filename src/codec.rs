@@ -1073,7 +1073,9 @@ fn render_stream_lifecycle<Resolver: RustEmissionResolver + ?Sized>(
     ))?;
     let initiation_refusal_type = canonical_item(quote::quote!(
         #[derive(Clone, Debug, Eq, PartialEq)]
-        pub struct #initiation_refusal;
+        pub enum #initiation_refusal {
+            InvalidQuery,
+        }
     ))?;
     let initiation_refusal_display = render_stream_refusal(&initiation_refusal)?;
     let termination_input = canonical_item(quote::quote!(
@@ -1085,7 +1087,10 @@ fn render_stream_lifecycle<Resolver: RustEmissionResolver + ?Sized>(
         canonical_item(quote::quote!(impl protos::Input for #termination {}))?;
     let termination_refusal_type = canonical_item(quote::quote!(
         #[derive(Clone, Debug, Eq, PartialEq)]
-        pub struct #termination_refusal;
+        pub enum #termination_refusal {
+            UnknownStream,
+            AlreadyClosed,
+        }
     ))?;
     let termination_refusal_display = render_stream_refusal(&termination_refusal)?;
     Ok(RenderedFixtureDocument(vec![
