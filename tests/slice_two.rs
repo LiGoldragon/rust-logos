@@ -164,7 +164,7 @@ fn struct_trait_and_associated_type_impl_project_to_compiling_rust() {
     let projected = projections(&[
         (decision_context, "DecisionContext"),
         (entry, "Entry"),
-        (vector, "Vec"),
+        (vector, "Vector"),
         (signal_admission, "SignalAdmission"),
         (record_decision, "recordDecision"),
         (admission_decision, "AdmissionDecision"),

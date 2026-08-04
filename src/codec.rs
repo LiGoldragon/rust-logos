@@ -29,6 +29,31 @@ use crate::fixture_vocabulary::{
 };
 use crate::{Error, FixtureRustNameProjectionTable, RustEncodedIdCodec};
 
+/// One correctNaming ↔ incorrectNaming entry owned exclusively by Rust text
+/// emission. The left spelling remains the only spelling in Ethos, Nomos, and
+/// Logos; the right spelling exists solely because Rust's standard library or
+/// trait vocabulary requires it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct RustNamingTranslation {
+    correct_name: &'static str,
+    rust_name: &'static str,
+}
+
+const RUST_NAMING_TRANSLATIONS: &[RustNamingTranslation] = &[
+    RustNamingTranslation {
+        correct_name: "Vector",
+        rust_name: "Vec",
+    },
+    RustNamingTranslation {
+        correct_name: "Text",
+        rust_name: "String",
+    },
+    RustNamingTranslation {
+        correct_name: "Ordered",
+        rust_name: "Ord",
+    },
+];
+
 /// Interface-specific Rust assembly over already structural Whole Logos.
 pub trait InterfaceRustEmission {
     /// Emit role memberships and the structurally required refusal behavior.
@@ -1025,12 +1050,9 @@ fn render_reference<Resolver: RustEmissionResolver + ?Sized>(
                 syn::parse2::<syn::Type>(quote::quote!(#path))
                     .map_err(|error| Error::Project(error.to_string()))
             } else {
-                syn::parse_str::<syn::Type>(&resolved_spelling(
-                    "type reference",
-                    identity,
-                    resolver,
-                )?)
-                .map_err(|error| Error::Project(error.to_string()))
+                let name = resolved_identifier("type reference", identity, resolver)?;
+                syn::parse2::<syn::Type>(quote::quote!(#name))
+                    .map_err(|error| Error::Project(error.to_string()))
             }
         }
         WholeLogosTypeReference::Application(application) => {
@@ -1068,8 +1090,16 @@ fn resolved_identifier<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
     identity: &VocabularyEncodedId,
     resolver: &Resolver,
 ) -> Result<syn::Ident, Error> {
-    syn::parse_str::<syn::Ident>(&resolved_spelling(position, identity, resolver)?)
+    let correct_name = resolved_spelling(position, identity, resolver)?;
+    syn::parse_str::<syn::Ident>(rust_textual_name(&correct_name))
         .map_err(|error| Error::Project(error.to_string()))
+}
+
+fn rust_textual_name(correct_name: &str) -> &str {
+    RUST_NAMING_TRANSLATIONS
+        .iter()
+        .find(|entry| entry.correct_name == correct_name)
+        .map_or(correct_name, |entry| entry.rust_name)
 }
 
 fn resolved_spelling<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
@@ -1571,5 +1601,18 @@ impl std::fmt::Display for RenderedFixtureDocument {
             writeln!(formatter, "{item}")?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::rust_textual_name;
+
+    #[test]
+    fn correct_naming_translates_only_at_the_rust_textual_boundary() {
+        assert_eq!(rust_textual_name("Vector"), "Vec");
+        assert_eq!(rust_textual_name("Text"), "String");
+        assert_eq!(rust_textual_name("Ordered"), "Ord");
+        assert_eq!(rust_textual_name("SignalAdmission"), "SignalAdmission");
     }
 }
