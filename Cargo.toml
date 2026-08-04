@@ -22,12 +22,12 @@ name = "slice_two"
 path = "tests/slice_two.rs"
 
 [dependencies]
-core-logos             = { git = "https://github.com/LiGoldragon/core-logos.git", rev = "a960aacff8ed13dc14b0ae0094208189d6609434" }
+core-logos             = { git = "https://github.com/LiGoldragon/core-logos.git", rev = "c7bd55bb29f7c0e10212571d2b4a2f69aae4b35b" }
 name-table             = { git = "https://github.com/LiGoldragon/name-table.git", rev = "50cb4bb53ae2dc4f2516f6912be328ef98ae49f8" }
 legacy-name-table      = { package = "name-table", git = "https://github.com/LiGoldragon/name-table.git", rev = "196610e2907687dcb8dbd0d2dfaafe4aefd9fa27" }
-raw-discovery          = { git = "https://github.com/LiGoldragon/raw-discovery.git", rev = "7290f65bbb5e7825ab2ca58340631d154d69d110" }
+raw-discovery          = { git = "https://github.com/LiGoldragon/raw-discovery.git", rev = "2d4e2e00f2821c4e2893fa96028cef0ac76e9644" }
 signal-sema-translator = { git = "https://github.com/LiGoldragon/signal-sema-translator.git", rev = "51c02c4a7b6f67d9dad095f11986085d7d65785b" }
-structural-codec       = { git = "https://github.com/LiGoldragon/structural-codec.git", rev = "f47fac132722916912b7071556f69cbbf4026f7f" }
+structural-codec       = { git = "https://github.com/LiGoldragon/structural-codec.git", rev = "fc6807f4365cde1551bbfe120520aec68245abdb" }
 bs58                   = "0.5"
 prettyplease           = "0.2"
 proc-macro2            = "1"
