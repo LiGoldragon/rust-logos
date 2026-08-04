@@ -22,7 +22,7 @@ name = "slice_two"
 path = "tests/slice_two.rs"
 
 [dependencies]
-core-logos             = { git = "https://github.com/LiGoldragon/core-logos.git", rev = "f02ce18c93f85ce44e6e2e291a2bd514346eccbe" }
+core-logos             = { git = "https://github.com/LiGoldragon/core-logos.git", rev = "39c9cbbd8bcdfb7a6eadf26cab044c5ba4607cb9" }
 name-table             = { git = "https://github.com/LiGoldragon/name-table.git", rev = "50cb4bb53ae2dc4f2516f6912be328ef98ae49f8" }
 legacy-name-table      = { package = "name-table", git = "https://github.com/LiGoldragon/name-table.git", rev = "196610e2907687dcb8dbd0d2dfaafe4aefd9fa27" }
 raw-discovery          = { git = "https://github.com/LiGoldragon/raw-discovery.git", rev = "7290f65bbb5e7825ab2ca58340631d154d69d110" }

@@ -246,10 +246,13 @@ fn expected_logos(fixture: &Fixture) -> WholeLogos {
             WholeLogosVisibility::Public,
             fixture.newtype.clone(),
             WholeLogosVisibility::Private,
-            WholeLogosTypeReference::Application(WholeLogosTypeApplication::new(
-                fixture.vector.clone(),
-                WholeLogosTypeReference::Identity(fixture.integer.clone()),
-            )),
+            WholeLogosTypeReference::Application(
+                WholeLogosTypeApplication::new(
+                    fixture.vector.clone(),
+                    vec![WholeLogosTypeReference::Identity(fixture.integer.clone())],
+                )
+                .expect("non-empty Vector application"),
+            ),
         )),
         WholeLogosItem::Enumeration(WholeLogosEnumeration::new(
             WholeLogosVisibility::Public,
@@ -262,8 +265,9 @@ fn expected_logos(fixture: &Fixture) -> WholeLogos {
                         WholeLogosTupleFields::new(vec![WholeLogosTypeReference::Application(
                             WholeLogosTypeApplication::new(
                                 fixture.vector.clone(),
-                                WholeLogosTypeReference::Identity(fixture.integer.clone()),
-                            ),
+                                vec![WholeLogosTypeReference::Identity(fixture.integer.clone())],
+                            )
+                            .expect("non-empty Vector application"),
                         )])
                         .expect("single-field tuple"),
                     ),
@@ -282,10 +286,13 @@ fn production_logos(fixture: &Fixture) -> (WholeLogos, VocabularyEncodedId, Voca
                 WholeLogosVisibility::Public,
                 fixture.newtype.clone(),
                 WholeLogosVisibility::Private,
-                WholeLogosTypeReference::Application(WholeLogosTypeApplication::new(
-                    vector.clone(),
-                    WholeLogosTypeReference::Identity(unsigned_64.clone()),
-                )),
+                WholeLogosTypeReference::Application(
+                    WholeLogosTypeApplication::new(
+                        vector.clone(),
+                        vec![WholeLogosTypeReference::Identity(unsigned_64.clone())],
+                    )
+                    .expect("non-empty Vector application"),
+                ),
             )),
             WholeLogosItem::Enumeration(WholeLogosEnumeration::new(
                 WholeLogosVisibility::Public,
@@ -298,8 +305,9 @@ fn production_logos(fixture: &Fixture) -> (WholeLogos, VocabularyEncodedId, Voca
                             WholeLogosTupleFields::new(vec![WholeLogosTypeReference::Application(
                                 WholeLogosTypeApplication::new(
                                     vector.clone(),
-                                    WholeLogosTypeReference::Identity(unsigned_64.clone()),
-                                ),
+                                    vec![WholeLogosTypeReference::Identity(unsigned_64.clone())],
+                                )
+                                .expect("non-empty Vector application"),
                             )])
                             .expect("single-field production tuple"),
                         ),

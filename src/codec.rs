@@ -454,7 +454,10 @@ impl RustLogos {
             }
             WholeLogosTypeReference::Application(application) => {
                 require_projection("application head", application.head(), projections)?;
-                self.validate_reference(application.payload(), projections)
+                for argument in application.arguments() {
+                    self.validate_reference(argument, projections)?;
+                }
+                Ok(())
             }
         }
     }
@@ -562,15 +565,22 @@ impl RustLogos {
         }
         if value.constructor() == &constructor_for(self.vocabulary.ids().type_reference(), 2) {
             let head = reference_id::<ApplicationHead>(value, "application head")?;
-            let [FieldValue::Delegated(payload)] =
-                repeated::<ApplicationPayload>(value, "application payload")?
-            else {
-                return Err(Error::TypedPositionMismatch {
-                    position: "one application payload",
-                });
-            };
+            let payloads = repeated::<ApplicationPayload>(value, "application arguments")?;
+            let mut arguments = Vec::with_capacity(payloads.len());
+            for payload in payloads {
+                let FieldValue::Delegated(payload) = payload else {
+                    return Err(Error::TypedPositionMismatch {
+                        position: "application argument",
+                    });
+                };
+                arguments.push(self.reify_reference(payload)?);
+            }
             return Ok(WholeLogosTypeReference::Application(
-                WholeLogosTypeApplication::new(head, self.reify_reference(payload)?),
+                WholeLogosTypeApplication::new(head, arguments).map_err(|_| {
+                    Error::TypedPositionMismatch {
+                        position: "non-empty application arguments",
+                    }
+                })?,
             ));
         }
         Err(Error::TypedPositionMismatch {
@@ -729,9 +739,13 @@ impl RustLogos {
                 Ok(record.finish())
             }
             WholeLogosTypeReference::Application(application) => {
-                let payload = FieldValue::Repeated(vec![FieldValue::Delegated(Box::new(
-                    self.reflect_reference(application.payload())?,
-                ))]);
+                let mut arguments = Vec::with_capacity(application.arguments().len());
+                for argument in application.arguments() {
+                    arguments.push(FieldValue::Delegated(Box::new(
+                        self.reflect_reference(argument)?,
+                    )));
+                }
+                let payload = FieldValue::Repeated(arguments);
                 let mut record = StructuralValue::record(constructor_for(
                     self.vocabulary.ids().type_reference(),
                     2,
@@ -1056,14 +1070,18 @@ fn render_reference<Resolver: RustEmissionResolver + ?Sized>(
             }
         }
         WholeLogosTypeReference::Application(application) => {
-            let payload = render_reference(application.payload(), resolver)?;
+            let arguments = application
+                .arguments()
+                .iter()
+                .map(|argument| render_reference(argument, resolver))
+                .collect::<Result<Vec<_>, _>>()?;
             if let Some(external) = resolver.external_type_path(application.head()) {
                 let head = external.as_path()?;
-                syn::parse2::<syn::Type>(quote::quote!(#head<#payload>))
+                syn::parse2::<syn::Type>(quote::quote!(#head<#(#arguments),*>))
                     .map_err(|error| Error::Project(error.to_string()))
             } else {
                 let head = resolved_identifier("application head", application.head(), resolver)?;
-                syn::parse2::<syn::Type>(quote::quote!(#head<#payload>))
+                syn::parse2::<syn::Type>(quote::quote!(#head<#(#arguments),*>))
                     .map_err(|error| Error::Project(error.to_string()))
             }
         }
@@ -1080,7 +1098,10 @@ fn reference_uses_external_path<Resolver: RustEmissionResolver + ?Sized>(
         }
         WholeLogosTypeReference::Application(application) => {
             resolver.external_type_path(application.head()).is_some()
-                || reference_uses_external_path(application.payload(), resolver)
+                || application
+                    .arguments()
+                    .iter()
+                    .any(|argument| reference_uses_external_path(argument, resolver))
         }
     }
 }
@@ -1340,7 +1361,10 @@ fn validate_production_reference<
                     .entry(application.head().clone())
                     .or_insert_with(|| RustEncodedIdCodec::encode_name(application.head()));
             }
-            validate_production_reference(application.payload(), allocated, types, generated)
+            for argument in application.arguments() {
+                validate_production_reference(argument, allocated, types, generated)?;
+            }
+            Ok(())
         }
     }
 }

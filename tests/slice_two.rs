@@ -131,16 +131,35 @@ fn struct_trait_and_associated_type_impl_project_to_compiling_rust() {
     let observer = universal(30);
     let receipt_name = universal(31);
     let receipt = universal(32);
+    let result = universal(33);
+    let ordered = universal(34);
+    let error = universal(35);
     let logos = WholeLogos::new(vec![
         WholeLogosItem::Struct(WholeLogosStruct::new(
             WholeLogosVisibility::Public,
             decision_context.clone(),
             vec![
                 reference(&entry),
-                WholeLogosTypeReference::Application(WholeLogosTypeApplication::new(
-                    vector.clone(),
-                    reference(&entry),
-                )),
+                WholeLogosTypeReference::Application(
+                    WholeLogosTypeApplication::new(vector.clone(), vec![reference(&entry)])
+                        .expect("non-empty Vector application"),
+                ),
+                WholeLogosTypeReference::Application(
+                    WholeLogosTypeApplication::new(
+                        result.clone(),
+                        vec![
+                            WholeLogosTypeReference::Application(
+                                WholeLogosTypeApplication::new(
+                                    vector.clone(),
+                                    vec![reference(&ordered)],
+                                )
+                                .expect("nested Vector application"),
+                            ),
+                            reference(&error),
+                        ],
+                    )
+                    .expect("n-ary Result application"),
+                ),
             ],
         )),
         WholeLogosItem::TraitDef(WholeLogosTraitDef::new(
@@ -175,6 +194,9 @@ fn struct_trait_and_associated_type_impl_project_to_compiling_rust() {
         (observer, "Observer"),
         (receipt_name, "Receipt"),
         (receipt, "ObserverReceipt"),
+        (result, "Result"),
+        (ordered, "Ordered"),
+        (error, "Error"),
     ]);
     let emitted = rust_logos()
         .emit_fixture(&logos, &projected)
@@ -186,6 +208,10 @@ fn struct_trait_and_associated_type_impl_project_to_compiling_rust() {
     );
     assert!(emitted.contains("pub field_0: Entry"), "{emitted}");
     assert!(emitted.contains("pub field_1: Vec<Entry>"), "{emitted}");
+    assert!(
+        emitted.contains("pub field_2: Result<Vec<Ord>, Error>"),
+        "{emitted}"
+    );
     assert!(!emitted.contains("DecisionContext("), "{emitted}");
     assert!(
         emitted.contains("fn record_decision(&self, parameter_0: AdmissionDecision) -> Unit;"),
@@ -212,7 +238,7 @@ fn struct_trait_and_associated_type_impl_project_to_compiling_rust() {
     fs::write(
         temporary.join("src/main.rs"),
         format!(
-            "pub struct Entry;\npub struct AdmissionDecision;\npub type Unit = ();\npub struct Filter;\npub struct Observer;\npub struct ObserverReceipt;\npub trait StreamOpen {{ type Stream; type Receipt; }}\n{emitted}\nfn main() {{ let _ = DecisionContext {{ field_0: Entry, field_1: Vec::new() }}; }}\n"
+            "pub struct Entry;\npub struct AdmissionDecision;\npub type Unit = ();\npub struct Filter;\npub struct Observer;\npub struct ObserverReceipt;\npub struct Ord;\npub struct Error;\npub trait StreamOpen {{ type Stream; type Receipt; }}\n{emitted}\nfn main() {{ let _ = DecisionContext {{ field_0: Entry, field_1: Vec::new(), field_2: Ok(Vec::new()) }}; }}\n"
         ),
     )
     .expect("scratch generated source");
