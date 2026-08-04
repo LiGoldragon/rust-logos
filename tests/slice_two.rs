@@ -8,8 +8,8 @@ use core_logos::{
     WholeLogos, WholeLogosAssociatedTypeBinding, WholeLogosEnumeration, WholeLogosItem,
     WholeLogosNewtype, WholeLogosStorageFingerprint, WholeLogosStruct, WholeLogosTable,
     WholeLogosTraitDef, WholeLogosTraitImpl, WholeLogosTraitMethod, WholeLogosTupleFields,
-    WholeLogosTypeApplication, WholeLogosTypeAttributes, WholeLogosTypeReference,
-    WholeLogosVariant, WholeLogosVariantPayload, WholeLogosVisibility,
+    WholeLogosTypeApplication, WholeLogosTypeAttributes, WholeLogosTypeParameter,
+    WholeLogosTypeReference, WholeLogosVariant, WholeLogosVariantPayload, WholeLogosVisibility,
 };
 use name_table::{LocalEncodedId, Name};
 use rust_logos::{
@@ -134,7 +134,35 @@ fn struct_trait_and_associated_type_impl_project_to_compiling_rust() {
     let result = universal(33);
     let ordered = universal(34);
     let error = universal(35);
+    let wire_result = universal(36);
     let logos = WholeLogos::new(vec![
+        WholeLogosItem::Newtype(
+            WholeLogosNewtype::new(
+                WholeLogosVisibility::Public,
+                wire_result.clone(),
+                WholeLogosVisibility::Private,
+                WholeLogosTypeReference::Application(
+                    WholeLogosTypeApplication::new(
+                        result.clone(),
+                        vec![
+                            WholeLogosTypeReference::Application(
+                                WholeLogosTypeApplication::new(
+                                    vector.clone(),
+                                    vec![WholeLogosTypeReference::Parameter(ordered.clone())],
+                                )
+                                .expect("nested Vector parameter application"),
+                            ),
+                            reference(&error),
+                        ],
+                    )
+                    .expect("n-ary Result parameter application"),
+                ),
+            )
+            .with_type_parameters(vec![WholeLogosTypeParameter::new(
+                ordered.clone(),
+                ordered.clone(),
+            )]),
+        ),
         WholeLogosItem::Struct(WholeLogosStruct::new(
             WholeLogosVisibility::Public,
             decision_context.clone(),
@@ -197,6 +225,7 @@ fn struct_trait_and_associated_type_impl_project_to_compiling_rust() {
         (result, "Result"),
         (ordered, "Ordered"),
         (error, "Error"),
+        (wire_result, "WireResult"),
     ]);
     let emitted = rust_logos()
         .emit_fixture(&logos, &projected)
@@ -209,7 +238,11 @@ fn struct_trait_and_associated_type_impl_project_to_compiling_rust() {
     assert!(emitted.contains("pub field_0: Entry"), "{emitted}");
     assert!(emitted.contains("pub field_1: Vec<Entry>"), "{emitted}");
     assert!(
-        emitted.contains("pub field_2: Result<Vec<Ord>, Error>"),
+        emitted.contains("pub field_2: Result<Vec<Ordered>, Error>"),
+        "{emitted}"
+    );
+    assert!(
+        emitted.contains("pub struct WireResult<Ordered: Ord>(Result<Vec<Ordered>, Error>);"),
         "{emitted}"
     );
     assert!(!emitted.contains("DecisionContext("), "{emitted}");
@@ -238,7 +271,7 @@ fn struct_trait_and_associated_type_impl_project_to_compiling_rust() {
     fs::write(
         temporary.join("src/main.rs"),
         format!(
-            "pub struct Entry;\npub struct AdmissionDecision;\npub type Unit = ();\npub struct Filter;\npub struct Observer;\npub struct ObserverReceipt;\npub struct Ord;\npub struct Error;\npub trait StreamOpen {{ type Stream; type Receipt; }}\n{emitted}\nfn main() {{ let _ = DecisionContext {{ field_0: Entry, field_1: Vec::new(), field_2: Ok(Vec::new()) }}; }}\n"
+            "pub struct Entry;\npub struct AdmissionDecision;\npub type Unit = ();\npub struct Filter;\npub struct Observer;\npub struct ObserverReceipt;\n#[derive(Eq, PartialEq, Ord, PartialOrd)]\npub struct Ordered;\npub struct Error;\npub trait StreamOpen {{ type Stream; type Receipt; }}\n{emitted}\nfn main() {{ let _ = DecisionContext {{ field_0: Entry, field_1: Vec::new(), field_2: Ok(Vec::new()) }}; let _ = WireResult::<Ordered>(Ok(vec![Ordered])); }}\n"
         ),
     )
     .expect("scratch generated source");

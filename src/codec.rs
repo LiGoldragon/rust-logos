@@ -6,8 +6,8 @@ use core_logos::{
     WholeLogos, WholeLogosAssociatedTypeBinding, WholeLogosEnumeration, WholeLogosItem,
     WholeLogosNewtype, WholeLogosStruct, WholeLogosTable, WholeLogosTraitDef, WholeLogosTraitImpl,
     WholeLogosTraitMethod, WholeLogosTupleFields, WholeLogosTypeApplication,
-    WholeLogosTypeAttributes, WholeLogosTypeReference, WholeLogosVariant, WholeLogosVariantPayload,
-    WholeLogosVisibility,
+    WholeLogosTypeAttributes, WholeLogosTypeParameter, WholeLogosTypeReference, WholeLogosVariant,
+    WholeLogosVariantPayload, WholeLogosVisibility,
 };
 use name_table::Name;
 use raw_discovery::{
@@ -36,21 +36,25 @@ use crate::{Error, FixtureRustNameProjectionTable, RustEncodedIdCodec};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct RustNamingTranslation {
     correct_name: &'static str,
-    rust_name: &'static str,
+    type_use: Option<&'static str>,
+    trait_bound: Option<&'static str>,
 }
 
 const RUST_NAMING_TRANSLATIONS: &[RustNamingTranslation] = &[
     RustNamingTranslation {
         correct_name: "Vector",
-        rust_name: "Vec",
+        type_use: Some("Vec"),
+        trait_bound: None,
     },
     RustNamingTranslation {
         correct_name: "Text",
-        rust_name: "String",
+        type_use: Some("String"),
+        trait_bound: None,
     },
     RustNamingTranslation {
         correct_name: "Ordered",
-        rust_name: "Ord",
+        type_use: None,
+        trait_bound: Some("Ord"),
     },
 ];
 
@@ -344,6 +348,7 @@ impl RustLogos {
             let rendered = match item {
                 WholeLogosItem::Newtype(newtype)
                     if newtype.attributes() != WholeLogosTypeAttributes::Plain
+                        || !newtype.type_parameters().is_empty()
                         || reference_uses_external_path(newtype.wrapped(), resolver) =>
                 {
                     render_newtype(newtype, resolver)?
@@ -395,6 +400,10 @@ impl RustLogos {
             match item {
                 WholeLogosItem::Newtype(newtype) => {
                     require_projection("newtype name", newtype.name(), projections)?;
+                    for parameter in newtype.type_parameters() {
+                        require_projection("type parameter name", parameter.name(), projections)?;
+                        require_projection("type parameter bound", parameter.bound(), projections)?;
+                    }
                     self.validate_reference(newtype.wrapped(), projections)?;
                 }
                 WholeLogosItem::Struct(structure) => {
@@ -451,6 +460,9 @@ impl RustLogos {
         match reference {
             WholeLogosTypeReference::Identity(encoded_id) => {
                 require_projection("type reference", encoded_id, projections)
+            }
+            WholeLogosTypeReference::Parameter(name) => {
+                require_projection("type parameter use", name, projections)
             }
             WholeLogosTypeReference::Application(application) => {
                 require_projection("application head", application.head(), projections)?;
@@ -738,6 +750,16 @@ impl RustLogos {
                 ))?;
                 Ok(record.finish())
             }
+            WholeLogosTypeReference::Parameter(name) => {
+                let mut record = StructuralValue::record(constructor_for(
+                    self.vocabulary.ids().type_reference(),
+                    1,
+                ));
+                record.insert::<ReferencedTypePosition>(FieldValue::Reference(
+                    ResolvedReference::new(name.clone()),
+                ))?;
+                Ok(record.finish())
+            }
             WholeLogosTypeReference::Application(application) => {
                 let mut arguments = Vec::with_capacity(application.arguments().len());
                 for argument in application.arguments() {
@@ -840,11 +862,26 @@ fn render_newtype<Resolver: RustEmissionResolver + ?Sized>(
     let attributes = render_type_attributes(newtype.attributes());
     let visibility = render_visibility(newtype.visibility());
     let name = resolved_identifier("newtype name", newtype.name(), resolver)?;
+    let type_parameters = newtype
+        .type_parameters()
+        .iter()
+        .map(|parameter| render_type_parameter(parameter, resolver))
+        .collect::<Result<Vec<_>, _>>()?;
     let wrapped_visibility = render_visibility(newtype.wrapped_visibility());
     let wrapped = render_reference(newtype.wrapped(), resolver)?;
     canonical_item(quote::quote!(
-        #attributes #visibility struct #name(#wrapped_visibility #wrapped);
+        #attributes #visibility struct #name<#(#type_parameters),*>(#wrapped_visibility #wrapped);
     ))
+}
+
+fn render_type_parameter<Resolver: RustEmissionResolver + ?Sized>(
+    parameter: &WholeLogosTypeParameter,
+    resolver: &Resolver,
+) -> Result<proc_macro2::TokenStream, Error> {
+    let name = resolved_identifier("type parameter name", parameter.name(), resolver)?;
+    let bound =
+        resolved_trait_bound_identifier("type parameter bound", parameter.bound(), resolver)?;
+    Ok(quote::quote!(#name: #bound))
 }
 
 fn render_enumeration<Resolver: RustEmissionResolver + ?Sized>(
@@ -1064,10 +1101,15 @@ fn render_reference<Resolver: RustEmissionResolver + ?Sized>(
                 syn::parse2::<syn::Type>(quote::quote!(#path))
                     .map_err(|error| Error::Project(error.to_string()))
             } else {
-                let name = resolved_identifier("type reference", identity, resolver)?;
+                let name = resolved_type_use_identifier("type reference", identity, resolver)?;
                 syn::parse2::<syn::Type>(quote::quote!(#name))
                     .map_err(|error| Error::Project(error.to_string()))
             }
+        }
+        WholeLogosTypeReference::Parameter(name) => {
+            let name = resolved_identifier("type parameter use", name, resolver)?;
+            syn::parse2::<syn::Type>(quote::quote!(#name))
+                .map_err(|error| Error::Project(error.to_string()))
         }
         WholeLogosTypeReference::Application(application) => {
             let arguments = application
@@ -1080,7 +1122,8 @@ fn render_reference<Resolver: RustEmissionResolver + ?Sized>(
                 syn::parse2::<syn::Type>(quote::quote!(#head<#(#arguments),*>))
                     .map_err(|error| Error::Project(error.to_string()))
             } else {
-                let head = resolved_identifier("application head", application.head(), resolver)?;
+                let head =
+                    resolved_type_use_identifier("application head", application.head(), resolver)?;
                 syn::parse2::<syn::Type>(quote::quote!(#head<#(#arguments),*>))
                     .map_err(|error| Error::Project(error.to_string()))
             }
@@ -1096,6 +1139,7 @@ fn reference_uses_external_path<Resolver: RustEmissionResolver + ?Sized>(
         WholeLogosTypeReference::Identity(identity) => {
             resolver.external_type_path(identity).is_some()
         }
+        WholeLogosTypeReference::Parameter(_) => false,
         WholeLogosTypeReference::Application(application) => {
             resolver.external_type_path(application.head()).is_some()
                 || application
@@ -1112,15 +1156,51 @@ fn resolved_identifier<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
     resolver: &Resolver,
 ) -> Result<syn::Ident, Error> {
     let correct_name = resolved_spelling(position, identity, resolver)?;
-    syn::parse_str::<syn::Ident>(rust_textual_name(&correct_name))
+    syn::parse_str::<syn::Ident>(&correct_name).map_err(|error| Error::Project(error.to_string()))
+}
+
+#[derive(Clone, Copy)]
+enum RustNamingPosition {
+    TypeUse,
+    TraitBound,
+}
+
+fn resolved_type_use_identifier<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
+    position: &'static str,
+    identity: &VocabularyEncodedId,
+    resolver: &Resolver,
+) -> Result<syn::Ident, Error> {
+    resolved_contextual_identifier(position, identity, RustNamingPosition::TypeUse, resolver)
+}
+
+fn resolved_trait_bound_identifier<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
+    position: &'static str,
+    identity: &VocabularyEncodedId,
+    resolver: &Resolver,
+) -> Result<syn::Ident, Error> {
+    resolved_contextual_identifier(position, identity, RustNamingPosition::TraitBound, resolver)
+}
+
+fn resolved_contextual_identifier<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
+    position: &'static str,
+    identity: &VocabularyEncodedId,
+    naming_position: RustNamingPosition,
+    resolver: &Resolver,
+) -> Result<syn::Ident, Error> {
+    let correct_name = resolved_spelling(position, identity, resolver)?;
+    syn::parse_str::<syn::Ident>(rust_textual_name(naming_position, &correct_name))
         .map_err(|error| Error::Project(error.to_string()))
 }
 
-fn rust_textual_name(correct_name: &str) -> &str {
+fn rust_textual_name(position: RustNamingPosition, correct_name: &str) -> &str {
     RUST_NAMING_TRANSLATIONS
         .iter()
         .find(|entry| entry.correct_name == correct_name)
-        .map_or(correct_name, |entry| entry.rust_name)
+        .and_then(|entry| match position {
+            RustNamingPosition::TypeUse => entry.type_use,
+            RustNamingPosition::TraitBound => entry.trait_bound,
+        })
+        .unwrap_or(correct_name)
 }
 
 fn resolved_spelling<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
@@ -1228,6 +1308,10 @@ fn generated_names<
                     types,
                     &mut generated,
                 )?;
+                for parameter in newtype.type_parameters() {
+                    validate_allocated("type parameter name", parameter.name(), allocated)?;
+                    validate_allocated("type parameter bound", parameter.bound(), allocated)?;
+                }
                 validate_production_reference(newtype.wrapped(), allocated, types, &mut generated)?;
             }
             WholeLogosItem::Struct(structure) => {
@@ -1351,6 +1435,9 @@ fn validate_production_reference<
                     .or_insert_with(|| RustEncodedIdCodec::encode_name(encoded_id));
             }
             Ok(())
+        }
+        WholeLogosTypeReference::Parameter(name) => {
+            validate_allocated("type parameter use", name, allocated)
         }
         WholeLogosTypeReference::Application(application) => {
             validate_allocated("application head", application.head(), allocated)?;
@@ -1630,13 +1717,29 @@ impl std::fmt::Display for RenderedFixtureDocument {
 
 #[cfg(test)]
 mod tests {
-    use super::rust_textual_name;
+    use super::{RustNamingPosition, rust_textual_name};
 
     #[test]
     fn correct_naming_translates_only_at_the_rust_textual_boundary() {
-        assert_eq!(rust_textual_name("Vector"), "Vec");
-        assert_eq!(rust_textual_name("Text"), "String");
-        assert_eq!(rust_textual_name("Ordered"), "Ord");
-        assert_eq!(rust_textual_name("SignalAdmission"), "SignalAdmission");
+        assert_eq!(
+            rust_textual_name(RustNamingPosition::TypeUse, "Vector"),
+            "Vec"
+        );
+        assert_eq!(
+            rust_textual_name(RustNamingPosition::TypeUse, "Text"),
+            "String"
+        );
+        assert_eq!(
+            rust_textual_name(RustNamingPosition::TypeUse, "Ordered"),
+            "Ordered"
+        );
+        assert_eq!(
+            rust_textual_name(RustNamingPosition::TraitBound, "Ordered"),
+            "Ord"
+        );
+        assert_eq!(
+            rust_textual_name(RustNamingPosition::TraitBound, "SignalAdmission"),
+            "SignalAdmission"
+        );
     }
 }
