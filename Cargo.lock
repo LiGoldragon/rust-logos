@@ -115,15 +115,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "content-identity"
+version = "0.5.0"
+source = "git+https://github.com/LiGoldragon/content-identity.git?rev=896b21e17f31b66d0802bff899b4b60acea9c0f1#896b21e17f31b66d0802bff899b4b60acea9c0f1"
+dependencies = [
+ "blake3",
+ "rkyv",
+ "thiserror",
+]
+
+[[package]]
 name = "core-logos"
 version = "0.24.0"
-source = "git+https://github.com/LiGoldragon/core-logos.git?rev=80e4ab18856f388a347320955eac365cfa766ce3#80e4ab18856f388a347320955eac365cfa766ce3"
+source = "git+https://github.com/LiGoldragon/core-logos.git?rev=d1cdc53108446eb9779653936611558afd2cb41d#d1cdc53108446eb9779653936611558afd2cb41d"
 dependencies = [
  "content-identity 0.3.0",
- "content-identity 0.4.0",
+ "content-identity 0.5.0",
  "name-table 0.1.0",
  "name-table 0.3.0",
- "protos",
+ "protos 0.5.0",
  "raw-discovery",
  "rkyv",
  "signal-sema-translator",
@@ -297,6 +307,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "protos"
+version = "0.5.0"
+source = "git+https://github.com/LiGoldragon/protos.git?rev=65e7c6d4692a40e1c49deffb3fb4a9a2c3555c5b#65e7c6d4692a40e1c49deffb3fb4a9a2c3555c5b"
+dependencies = [
+ "content-identity 0.5.0",
+ "rkyv",
+ "signal-frame",
+]
+
+[[package]]
 name = "ptr_meta"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -442,7 +462,7 @@ source = "git+https://github.com/LiGoldragon/signal-sema-translator.git?rev=51c0
 dependencies = [
  "blake3",
  "name-table 0.3.0",
- "protos",
+ "protos 0.3.0",
  "rkyv",
  "signal-frame",
  "thiserror",
