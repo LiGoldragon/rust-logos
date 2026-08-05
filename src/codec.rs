@@ -989,8 +989,8 @@ fn render_type_attributes(attributes: WholeLogosTypeAttributes) -> proc_macro2::
         WholeLogosTypeAttributes::Wire => quote::quote!(
             #[rustfmt::skip]
             #[cfg_attr(
-                feature = "nota-text",
-                derive(nota::NotaDecode, nota::NotaDecodeTraced, nota::NotaEncode)
+                feature = "dotos-text",
+                derive(dotos::DotosDecode, dotos::DotosDecodeTraced, dotos::DotosEncode)
             )]
             #[derive(
                 rkyv::Archive,

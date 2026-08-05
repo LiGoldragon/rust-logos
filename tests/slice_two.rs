@@ -381,7 +381,7 @@ fn wire_policy_projects_the_existing_interface_attribute_preamble() {
     assert_eq!(emitted.matches("#[rustfmt::skip]").count(), 3, "{emitted}");
     assert_eq!(emitted.matches("rkyv::Archive").count(), 3, "{emitted}");
     assert_eq!(
-        emitted.matches("nota::NotaDecodeTraced").count(),
+        emitted.matches("dotos::DotosDecodeTraced").count(),
         3,
         "{emitted}"
     );
@@ -453,7 +453,7 @@ fn stored_policy_and_table_shape_project_to_the_sema_engine_trait() {
         .expect("project stored record and table");
 
     assert_eq!(emitted.matches("rkyv::Archive").count(), 3, "{emitted}");
-    assert!(!emitted.contains("nota::NotaDecode"), "{emitted}");
+    assert!(!emitted.contains("dotos::DotosDecode"), "{emitted}");
     assert!(emitted.contains("pub struct StoredNewtype"), "{emitted}");
     assert!(
         emitted.contains("pub fn payload(&self) -> &Entry"),
