@@ -895,11 +895,46 @@ fn render_newtype<Resolver: RustEmissionResolver + ?Sized>(
         .iter()
         .map(|parameter| render_type_parameter(parameter, resolver))
         .collect::<Result<Vec<_>, _>>()?;
+    let type_arguments = newtype
+        .type_parameters()
+        .iter()
+        .map(|parameter| resolved_identifier("type parameter name", parameter.name(), resolver))
+        .collect::<Result<Vec<_>, _>>()?;
     let wrapped_visibility = render_visibility(newtype.wrapped_visibility());
     let wrapped = render_reference(newtype.wrapped(), resolver)?;
-    canonical_item(quote::quote!(
+    let accessors = quote::quote!(
+        /// Construct the generated newtype from its source-declared payload.
+        pub fn new(payload: #wrapped) -> Self {
+            Self(payload)
+        }
+
+        /// Borrow the one source-declared payload without decoding archive bytes.
+        pub fn payload(&self) -> &#wrapped {
+            &self.0
+        }
+
+        /// Consume the newtype and recover its source-declared payload.
+        pub fn into_payload(self) -> #wrapped {
+            self.0
+        }
+    );
+    let implementation = if type_parameters.is_empty() {
+        quote::quote!(impl #name { #accessors })
+    } else {
+        quote::quote!(
+            impl<#(#type_parameters),*> #name<#(#type_arguments),*> {
+                #accessors
+            }
+        )
+    };
+    let declaration = canonical_item(quote::quote!(
         #attributes #visibility struct #name<#(#type_parameters),*>(#wrapped_visibility #wrapped);
-    ))
+    ))?;
+    let implementation = canonical_item(implementation)?;
+    Ok(RenderedFixtureDocument(vec![declaration, implementation])
+        .to_string()
+        .trim_end()
+        .to_owned())
 }
 
 fn render_type_parameter<Resolver: RustEmissionResolver + ?Sized>(
@@ -1016,6 +1051,10 @@ fn render_table<Resolver: RustEmissionResolver + ?Sized>(
             const FAMILY_NAME: &'static str = #family;
             const SCHEMA_HASH: sema_engine::SchemaHash =
                 sema_engine::SchemaHash::new([#(#schema_hash),*]);
+
+            fn record_key(key: &Self::Key) -> sema_engine::Result<sema_engine::RecordKey> {
+                Ok(sema_engine::RecordKey::new(key.payload().to_string()))
+            }
         }
     ))?;
     Ok(RenderedFixtureDocument(vec![declaration, implementation])

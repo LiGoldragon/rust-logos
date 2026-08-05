@@ -6,12 +6,12 @@ use std::process::Command;
 
 use core_logos::{
     WholeLogos, WholeLogosAssociatedTypeBinding, WholeLogosEnumeration, WholeLogosItem,
-    WholeLogosNewtype, WholeLogosPreservedSemaFamily, WholeLogosStorageFingerprint,
-    WholeLogosStreamHandle, WholeLogosStreamInitiation, WholeLogosStreamLifecycle,
-    WholeLogosStreamTermination, WholeLogosStruct, WholeLogosTable, WholeLogosTraitDef,
-    WholeLogosTraitImpl, WholeLogosTraitMethod, WholeLogosTupleFields, WholeLogosTypeApplication,
-    WholeLogosTypeAttributes, WholeLogosTypeParameter, WholeLogosTypeReference, WholeLogosVariant,
-    WholeLogosVariantPayload, WholeLogosVisibility,
+    WholeLogosNewtype, WholeLogosPreservedSemaFamily, WholeLogosSemaTableKey,
+    WholeLogosStorageFingerprint, WholeLogosStreamHandle, WholeLogosStreamInitiation,
+    WholeLogosStreamLifecycle, WholeLogosStreamTermination, WholeLogosStruct, WholeLogosTable,
+    WholeLogosTraitDef, WholeLogosTraitImpl, WholeLogosTraitMethod, WholeLogosTupleFields,
+    WholeLogosTypeApplication, WholeLogosTypeAttributes, WholeLogosTypeParameter,
+    WholeLogosTypeReference, WholeLogosVariant, WholeLogosVariantPayload, WholeLogosVisibility,
 };
 use name_table::{LocalEncodedId, Name};
 use rust_logos::{
@@ -432,7 +432,7 @@ fn stored_policy_and_table_shape_project_to_the_sema_engine_trait() {
         WholeLogosItem::Table(WholeLogosTable::new(
             table.clone(),
             reference(&record),
-            reference(&key),
+            WholeLogosSemaTableKey::new(key.clone()),
             WholeLogosStorageFingerprint::new([7; 32]),
             WholeLogosStorageFingerprint::new([8; 32]),
         )),
@@ -455,6 +455,10 @@ fn stored_policy_and_table_shape_project_to_the_sema_engine_trait() {
     assert_eq!(emitted.matches("rkyv::Archive").count(), 3, "{emitted}");
     assert!(!emitted.contains("nota::NotaDecode"), "{emitted}");
     assert!(emitted.contains("pub struct StoredNewtype"), "{emitted}");
+    assert!(
+        emitted.contains("pub fn payload(&self) -> &Entry"),
+        "{emitted}"
+    );
     assert!(emitted.contains("pub enum StoredEnumeration"), "{emitted}");
     assert!(emitted.contains("pub struct Records;"), "{emitted}");
     assert!(
@@ -463,6 +467,10 @@ fn stored_policy_and_table_shape_project_to_the_sema_engine_trait() {
     );
     assert!(emitted.contains("type Record = StoredRecord;"), "{emitted}");
     assert!(emitted.contains("type Key = Domain;"), "{emitted}");
+    assert!(
+        emitted.contains("Ok(sema_engine::RecordKey::new(key.payload().to_string()))"),
+        "{emitted}"
+    );
     assert!(
         emitted.contains("sema_engine::TableName::new(\"Records\")"),
         "{emitted}"
@@ -494,7 +502,7 @@ fn preserved_sema_family_emits_the_adopted_physical_coordinates() {
             WholeLogosTable::new(
                 table.clone(),
                 reference(&record),
-                reference(&key),
+                WholeLogosSemaTableKey::new(key.clone()),
                 WholeLogosStorageFingerprint::new([1; 32]),
                 WholeLogosStorageFingerprint::new([2; 32]),
             )
@@ -569,7 +577,7 @@ fn production_references_use_validated_external_paths_without_redeclaring_the_ty
         WholeLogosItem::Table(WholeLogosTable::new(
             table.clone(),
             reference(&record),
-            reference(&domain),
+            WholeLogosSemaTableKey::new(wrapper.clone()),
             WholeLogosStorageFingerprint::new([11; 32]),
             WholeLogosStorageFingerprint::new([12; 32]),
         )),
