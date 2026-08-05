@@ -986,9 +986,15 @@ fn render_table<Resolver: RustEmissionResolver + ?Sized>(
     resolver: &Resolver,
 ) -> Result<String, Error> {
     let specification = resolved_identifier("table name", table.name(), resolver)?;
-    let coordinate = resolved_spelling("table name", table.name(), resolver)?;
+    let coordinate = table
+        .preserved_sema_family()
+        .map(|family| family.table_name().to_owned())
+        .unwrap_or(resolved_spelling("table name", table.name(), resolver)?);
     let coordinate = syn::LitStr::new(&coordinate, proc_macro2::Span::call_site());
-    let family = RustEncodedIdCodec::encode(table.name());
+    let family = table
+        .preserved_sema_family()
+        .map(|family| family.family_name().to_owned())
+        .unwrap_or_else(|| RustEncodedIdCodec::encode(table.name()));
     let family = syn::LitStr::new(&family, proc_macro2::Span::call_site());
     let record = render_reference(table.record(), resolver)?;
     let key = render_reference(table.key(), resolver)?;
