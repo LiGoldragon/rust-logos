@@ -174,8 +174,8 @@ pub enum Error {
     #[error("enumeration tuple fields must have private visibility")]
     UnsupportedVariantFieldVisibility,
 
-    /// An enumeration tuple payload did not carry exactly one field.
-    #[error("enumeration tuple payload requires exactly one field, found {found}")]
+    /// An enumeration tuple payload did not carry any fields.
+    #[error("enumeration tuple payload requires at least one field, found {found}")]
     UnsupportedVariantTupleArity {
         /// Refused positional-field count.
         found: usize,

@@ -22,9 +22,9 @@ Pass two is expectation-driven. Complete archived position records describe
 the fixture vocabulary:
 
 - newtype and enumeration items;
-- unit and positional tuple variants;
+- unit variants and tuple variants with one or more positional fields;
 - positional tuple fields;
-- identity references and recursive unary type applications;
+- identity references and recursive nonempty type applications;
 - fixed visibility, keyword, delimiter, comma, and terminator positions.
 
 Each record implements `StructureRecord` and is consumed by the one shared

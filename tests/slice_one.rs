@@ -302,14 +302,19 @@ fn production_logos(fixture: &Fixture) -> (WholeLogos, VocabularyEncodedId, Voca
                     WholeLogosVariant::new(
                         fixture.payload.clone(),
                         WholeLogosVariantPayload::Tuple(
-                            WholeLogosTupleFields::new(vec![WholeLogosTypeReference::Application(
-                                WholeLogosTypeApplication::new(
-                                    vector.clone(),
-                                    vec![WholeLogosTypeReference::Identity(unsigned_64.clone())],
-                                )
-                                .expect("non-empty Vector application"),
-                            )])
-                            .expect("single-field production tuple"),
+                            WholeLogosTupleFields::new(vec![
+                                WholeLogosTypeReference::Application(
+                                    WholeLogosTypeApplication::new(
+                                        vector.clone(),
+                                        vec![WholeLogosTypeReference::Identity(
+                                            unsigned_64.clone(),
+                                        )],
+                                    )
+                                    .expect("non-empty Vector application"),
+                                ),
+                                WholeLogosTypeReference::Identity(unsigned_64.clone()),
+                            ])
+                            .expect("nonempty production product"),
                         ),
                     ),
                 ],
@@ -363,7 +368,7 @@ fn production_bindings(
     for occurrence in 0..2 {
         bindings.reference(source, "Vec", occurrence, vector.clone());
     }
-    for occurrence in 0..2 {
+    for occurrence in 0..3 {
         bindings.reference(source, "u64", occurrence, unsigned_64.clone());
     }
     bindings
@@ -595,7 +600,7 @@ fn structurally_emitted_production_names_compile_and_run() {
     fs::write(
         temporary.join("src/main.rs"),
         format!(
-            "{emitted}\nfn score(value: {enumeration}) -> usize {{ match value {{ {enumeration}::{unit} => 1, {enumeration}::{payload}(values) => values.len(), }} }}\nfn main() {{ let wrapped = {newtype}(vec![1, 2, 3]); assert_eq!(wrapped.0.len(), 3); assert_eq!(score({enumeration}::{unit}), 1); assert_eq!(score({enumeration}::{payload}(vec![40, 2])), 2); }}\n"
+            "{emitted}\nfn score(value: {enumeration}) -> u64 {{ match value {{ {enumeration}::{unit} => 1, {enumeration}::{payload}(values, value) => values.len() as u64 + value, }} }}\nfn main() {{ let wrapped = {newtype}(vec![1, 2, 3]); assert_eq!(wrapped.0.len(), 3); assert_eq!(score({enumeration}::{unit}), 1); assert_eq!(score({enumeration}::{payload}(vec![40, 2], 40)), 42); }}\n"
         ),
     )
     .expect("write production scratch program");
@@ -758,7 +763,7 @@ fn unsupported_fields_attributes_and_unclosed_enum_body_refuse() {
 }
 
 #[test]
-fn multi_field_tuple_variant_refuses_as_typed_input_without_rewriting() {
+fn nonempty_product_tuple_variants_decode_and_emit_without_rewriting() {
     let fixture = fixture();
     let source = "pub enum Id17 { Id172 ( u64 , Vec < u64 > , ) , }\n";
     let mut source_bindings = Bindings::default();
@@ -768,10 +773,44 @@ fn multi_field_tuple_variant_refuses_as_typed_input_without_rewriting() {
     source_bindings.reference(source, "u64", 1, fixture.integer.clone());
     source_bindings.reference(source, "Vec", 0, fixture.vector.clone());
 
-    assert!(matches!(
-        fixture.codec.decode_fixture(source, &source_bindings),
-        Err(Error::UnsupportedVariantTupleArity { found: 2 })
-    ));
+    let decoded = fixture
+        .codec
+        .decode_fixture(source, &source_bindings)
+        .expect("decode two-field product variant");
+    let emitted = fixture
+        .codec
+        .emit_fixture(&decoded, &projections(&fixture))
+        .expect("emit two-field product variant");
+
+    let mut emitted_bindings = Bindings::default();
+    emitted_bindings.declaration(&emitted, "Id17", 0, fixture.enumeration.clone());
+    emitted_bindings.declaration(&emitted, "Id172", 0, fixture.payload.clone());
+    emitted_bindings.reference(&emitted, "u64", 0, fixture.integer.clone());
+    emitted_bindings.reference(&emitted, "u64", 1, fixture.integer.clone());
+    emitted_bindings.reference(&emitted, "Vec", 0, fixture.vector.clone());
+    assert_eq!(
+        fixture
+            .codec
+            .decode_fixture(&emitted, &emitted_bindings)
+            .expect("reparse emitted two-field product variant"),
+        decoded
+    );
+}
+
+#[test]
+fn empty_tuple_variants_remain_refused() {
+    let fixture = fixture();
+    let source = "pub enum Id17 { Id172 ( ) , }\n";
+    let mut source_bindings = Bindings::default();
+    source_bindings.declaration(source, "Id17", 0, fixture.enumeration.clone());
+    source_bindings.declaration(source, "Id172", 0, fixture.payload.clone());
+
+    assert!(
+        fixture
+            .codec
+            .decode_fixture(source, &source_bindings)
+            .is_err()
+    );
 }
 
 #[test]

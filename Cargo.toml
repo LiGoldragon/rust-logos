@@ -1,6 +1,6 @@
 [package]
 name         = "rust-logos"
-version      = "0.28.0"
+version      = "0.29.0"
 autotests    = false
 edition      = "2024"
 rust-version = "1.85"
@@ -22,7 +22,7 @@ name = "slice_two"
 path = "tests/slice_two.rs"
 
 [dependencies]
-core-logos             = { git = "https://github.com/LiGoldragon/core-logos.git", rev = "41d366fb75820f8cb033e56433e62a6d7a5b73fb" }
+core-logos             = { git = "https://github.com/LiGoldragon/core-logos.git", rev = "abee4036fbeb58c767ef7dc3489804e2afd5c6e1" }
 name-table             = { git = "https://github.com/LiGoldragon/name-table.git", rev = "a22f48d8040ab9235f3552ad8654ff8e27b8157d" }
 legacy-name-table      = { package = "name-table", git = "https://github.com/LiGoldragon/name-table.git", rev = "196610e2907687dcb8dbd0d2dfaafe4aefd9fa27" }
 raw-discovery          = { git = "https://github.com/LiGoldragon/raw-discovery.git", rev = "2d4e2e00f2821c4e2893fa96028cef0ac76e9644" }

@@ -972,13 +972,12 @@ fn render_variant<Resolver: RustEmissionResolver + ?Sized>(
     match variant.payload() {
         WholeLogosVariantPayload::Unit => Ok(quote::quote!(#name)),
         WholeLogosVariantPayload::Tuple(fields) => {
-            let [field] = fields.fields() else {
-                return Err(Error::UnsupportedVariantTupleArity {
-                    found: fields.fields().len(),
-                });
-            };
-            let field = render_reference(field, resolver)?;
-            Ok(quote::quote!(#name(#field)))
+            let fields = fields
+                .fields()
+                .iter()
+                .map(|field| render_reference(field, resolver))
+                .collect::<Result<Vec<_>, Error>>()?;
+            Ok(quote::quote!(#name(#(#fields),*)))
         }
     }
 }
