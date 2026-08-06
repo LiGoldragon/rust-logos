@@ -1,6 +1,6 @@
 [package]
 name         = "rust-logos"
-version      = "0.31.0"
+version      = "0.32.0"
 autotests    = false
 edition      = "2024"
 rust-version = "1.85"
@@ -22,9 +22,8 @@ name = "slice_two"
 path = "tests/slice_two.rs"
 
 [dependencies]
-core-logos             = { git = "https://github.com/LiGoldragon/core-logos.git", rev = "734363bd5fca01c7dab46028f4a36e3ce6ae6650" }
+core-logos             = { git = "https://github.com/LiGoldragon/core-logos.git", rev = "ceb502d8ee0bc3b62672d6531d2273aaeb334770" }
 name-table             = { git = "https://github.com/LiGoldragon/name-table.git", rev = "a22f48d8040ab9235f3552ad8654ff8e27b8157d" }
-legacy-name-table      = { package = "name-table", git = "https://github.com/LiGoldragon/name-table.git", rev = "196610e2907687dcb8dbd0d2dfaafe4aefd9fa27" }
 raw-discovery          = { git = "https://github.com/LiGoldragon/raw-discovery.git", rev = "25c2003ca02c5c2a7047ccd5629abfb698a90459" }
 signal-sema-translator = { git = "https://github.com/LiGoldragon/signal-sema-translator.git", rev = "3f41813dd63904c7e2b3da4382eff64ed1bf12fe" }
 sema-translator        = { git = "https://github.com/LiGoldragon/sema-translator.git", rev = "b617908d0693bda813477d37391a2b688078be96", default-features = false, features = ["bootstrap"] }

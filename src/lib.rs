@@ -21,7 +21,6 @@ mod codec;
 mod error;
 mod fixture_vocabulary;
 mod identifier;
-mod legacy_project;
 
 pub use codec::{
     InterfaceRustEmission, InterfaceRustRoleIds, RustLogos, RustTypePath, RustTypePathResolver,
@@ -32,4 +31,3 @@ pub use identifier::{
     BASE58BTC_MULTIBASE_PREFIX, ENCODED_ID_FORMAT_VERSION, FixtureRustEmittedIdentifier,
     FixtureRustNameProjectionTable, RustEncodedIdCodec,
 };
-pub use legacy_project::RustSource;

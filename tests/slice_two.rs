@@ -6,12 +6,12 @@ use std::process::Command;
 
 use core_logos::{
     WholeLogos, WholeLogosAssociatedTypeBinding, WholeLogosEnumeration, WholeLogosItem,
-    WholeLogosNewtype, WholeLogosPreservedSemaFamily, WholeLogosSemaTableKey,
-    WholeLogosStorageFingerprint, WholeLogosStreamHandle, WholeLogosStreamInitiation,
-    WholeLogosStreamLifecycle, WholeLogosStreamTermination, WholeLogosStruct, WholeLogosTable,
-    WholeLogosTraitDef, WholeLogosTraitImpl, WholeLogosTraitMethod, WholeLogosTupleFields,
-    WholeLogosTypeApplication, WholeLogosTypeAttributes, WholeLogosTypeParameter,
-    WholeLogosTypeReference, WholeLogosVariant, WholeLogosVariantPayload, WholeLogosVisibility,
+    WholeLogosNewtype, WholeLogosSemaTableKey, WholeLogosStorageFingerprint,
+    WholeLogosStreamHandle, WholeLogosStreamInitiation, WholeLogosStreamLifecycle,
+    WholeLogosStreamTermination, WholeLogosStruct, WholeLogosTable, WholeLogosTraitDef,
+    WholeLogosTraitImpl, WholeLogosTraitMethod, WholeLogosTupleFields, WholeLogosTypeApplication,
+    WholeLogosTypeAttributes, WholeLogosTypeParameter, WholeLogosTypeReference, WholeLogosVariant,
+    WholeLogosVariantPayload, WholeLogosVisibility,
 };
 use name_table::{LocalEncodedId, Name};
 use rust_logos::{
@@ -441,62 +441,6 @@ fn stored_policy_and_table_shape_project_to_the_sema_engine_trait() {
         )),
         "{emitted}"
     );
-}
-
-#[test]
-fn preserved_sema_family_emits_the_adopted_physical_coordinates() {
-    let record = universal(81);
-    let key = universal(82);
-    let table = universal(83);
-    let logos = WholeLogos::new(vec![
-        WholeLogosItem::Struct(
-            WholeLogosStruct::new(
-                WholeLogosVisibility::Public,
-                record.clone(),
-                vec![reference(&key)],
-            )
-            .with_attributes(WholeLogosTypeAttributes::Stored),
-        ),
-        WholeLogosItem::Table(
-            WholeLogosTable::new(
-                table.clone(),
-                reference(&record),
-                WholeLogosSemaTableKey::new(key.clone()),
-                WholeLogosStorageFingerprint::new([1; 32]),
-                WholeLogosStorageFingerprint::new([2; 32]),
-            )
-            .with_preserved_sema_family(WholeLogosPreservedSemaFamily::new(
-                "records".to_owned(),
-                "RecordsFamily".to_owned(),
-                [3; 32],
-            )),
-        ),
-    ]);
-    let emitted = rust_logos()
-        .emit_fixture(
-            &logos,
-            &projections(&[
-                (record, "StoredRecord"),
-                (key, "RecordIdentifier"),
-                (table, "FreshRecords"),
-            ]),
-        )
-        .expect("emit exact preserved coordinates");
-
-    assert!(emitted.contains("pub struct FreshRecords;"), "{emitted}");
-    assert!(
-        emitted.contains("sema_engine::TableName::new(\"records\")"),
-        "{emitted}"
-    );
-    assert!(
-        emitted.contains("const FAMILY_NAME: &'static str = \"RecordsFamily\";"),
-        "{emitted}"
-    );
-    assert!(
-        emitted.contains("const SCHEMA_HASH: sema_engine::SchemaHash"),
-        "{emitted}"
-    );
-    assert!(emitted.contains("\n        3, 3, 3, 3"), "{emitted}");
 }
 
 #[test]

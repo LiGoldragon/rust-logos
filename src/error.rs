@@ -55,10 +55,6 @@ pub enum RustIdentifierRefusal {
 /// A typed failure while sealing or evaluating the Slice One Rust vocabulary.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    /// A legacy Logos item carried an identifier absent from its sibling table.
-    #[error("legacy Logos name projection failed: {0}")]
-    LegacyName(#[from] legacy_name_table::NameTableError),
-
     /// A legacy Logos token structure did not form a Rust item or file.
     #[error("legacy Logos token structure did not parse as Rust: {0}")]
     Project(String),
