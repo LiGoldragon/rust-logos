@@ -27,7 +27,7 @@ name-table             = { git = "https://github.com/LiGoldragon/name-table.git"
 legacy-name-table      = { package = "name-table", git = "https://github.com/LiGoldragon/name-table.git", rev = "196610e2907687dcb8dbd0d2dfaafe4aefd9fa27" }
 raw-discovery          = { git = "https://github.com/LiGoldragon/raw-discovery.git", rev = "2d4e2e00f2821c4e2893fa96028cef0ac76e9644" }
 signal-sema-translator = { git = "https://github.com/LiGoldragon/signal-sema-translator.git", rev = "3f41813dd63904c7e2b3da4382eff64ed1bf12fe" }
-sema-translator        = { git = "https://github.com/LiGoldragon/sema-translator.git", rev = "4bd6e8fa0c3139be94a83c7ca7975bd8153eb9f5", default-features = false, features = ["bootstrap"] }
+sema-translator        = { git = "https://github.com/LiGoldragon/sema-translator.git", rev = "deb9f04475268d5ec29bb7010f953cafdc0ef398", default-features = false, features = ["bootstrap"] }
 structural-codec       = { git = "https://github.com/LiGoldragon/structural-codec.git", rev = "879d76f91facedd6d5cbca79e282260e1beb9478" }
 bs58                   = "0.5"
 prettyplease           = "0.2"
