@@ -115,15 +115,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "content-identity"
+version = "0.6.0"
+source = "git+https://github.com/LiGoldragon/content-identity.git?rev=7f005b3b73ae141d11b9723ab38e69c9d4859410#7f005b3b73ae141d11b9723ab38e69c9d4859410"
+dependencies = [
+ "blake3",
+ "rkyv",
+ "thiserror",
+]
+
+[[package]]
 name = "core-ethos"
-version = "0.29.1"
-source = "git+https://github.com/LiGoldragon/core-ethos.git?rev=43b48c779c54ee9f05cbcc111d5d88074b162461#43b48c779c54ee9f05cbcc111d5d88074b162461"
+version = "0.30.0"
+source = "git+https://github.com/LiGoldragon/core-ethos.git?rev=e6827c47ef254a4061a9d1a16b4b780673dc5d83#e6827c47ef254a4061a9d1a16b4b780673dc5d83"
 dependencies = [
  "name-table 0.3.0",
- "raw-discovery",
+ "raw-discovery 0.5.0",
  "rkyv",
  "signal-sema-translator",
- "structural-codec",
+ "structural-codec 0.22.0",
  "thiserror",
 ]
 
@@ -137,10 +147,10 @@ dependencies = [
  "name-table 0.1.0",
  "name-table 0.3.0",
  "protos",
- "raw-discovery",
+ "raw-discovery 0.4.0",
  "rkyv",
  "signal-sema-translator",
- "structural-codec",
+ "structural-codec 0.20.0",
  "thiserror",
 ]
 
@@ -358,6 +368,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "raw-discovery"
+version = "0.5.0"
+source = "git+https://github.com/LiGoldragon/raw-discovery.git?rev=25c2003ca02c5c2a7047ccd5629abfb698a90459#25c2003ca02c5c2a7047ccd5629abfb698a90459"
+dependencies = [
+ "content-identity 0.6.0",
+ "rkyv",
+ "thiserror",
+]
+
+[[package]]
 name = "rend"
 version = "0.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -407,11 +427,11 @@ dependencies = [
  "prettyplease",
  "proc-macro2",
  "quote",
- "raw-discovery",
+ "raw-discovery 0.5.0",
  "rkyv",
  "sema-translator",
  "signal-sema-translator",
- "structural-codec",
+ "structural-codec 0.22.0",
  "syn 2.0.119",
  "thiserror",
 ]
@@ -424,13 +444,13 @@ checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
 
 [[package]]
 name = "sema-translator"
-version = "0.10.0"
-source = "git+https://github.com/LiGoldragon/sema-translator.git?rev=deb9f04475268d5ec29bb7010f953cafdc0ef398#deb9f04475268d5ec29bb7010f953cafdc0ef398"
+version = "0.11.0"
+source = "git+https://github.com/LiGoldragon/sema-translator.git?rev=b617908d0693bda813477d37391a2b688078be96#b617908d0693bda813477d37391a2b688078be96"
 dependencies = [
  "core-ethos",
  "name-table 0.3.0",
  "signal-sema-translator",
- "structural-codec",
+ "structural-codec 0.22.0",
  "thiserror",
 ]
 
@@ -493,7 +513,19 @@ source = "git+https://github.com/LiGoldragon/structural-codec.git?rev=879d76f91f
 dependencies = [
  "content-identity 0.3.0",
  "name-table 0.3.0",
- "raw-discovery",
+ "raw-discovery 0.4.0",
+ "rkyv",
+ "thiserror",
+]
+
+[[package]]
+name = "structural-codec"
+version = "0.22.0"
+source = "git+https://github.com/LiGoldragon/structural-codec.git?rev=70ef879bc99eb247b7661169794ee189d45c62ff#70ef879bc99eb247b7661169794ee189d45c62ff"
+dependencies = [
+ "content-identity 0.6.0",
+ "name-table 0.3.0",
+ "raw-discovery 0.5.0",
  "rkyv",
  "thiserror",
 ]

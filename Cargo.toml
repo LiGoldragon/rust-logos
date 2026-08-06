@@ -25,10 +25,10 @@ path = "tests/slice_two.rs"
 core-logos             = { git = "https://github.com/LiGoldragon/core-logos.git", rev = "734363bd5fca01c7dab46028f4a36e3ce6ae6650" }
 name-table             = { git = "https://github.com/LiGoldragon/name-table.git", rev = "a22f48d8040ab9235f3552ad8654ff8e27b8157d" }
 legacy-name-table      = { package = "name-table", git = "https://github.com/LiGoldragon/name-table.git", rev = "196610e2907687dcb8dbd0d2dfaafe4aefd9fa27" }
-raw-discovery          = { git = "https://github.com/LiGoldragon/raw-discovery.git", rev = "2d4e2e00f2821c4e2893fa96028cef0ac76e9644" }
+raw-discovery          = { git = "https://github.com/LiGoldragon/raw-discovery.git", rev = "25c2003ca02c5c2a7047ccd5629abfb698a90459" }
 signal-sema-translator = { git = "https://github.com/LiGoldragon/signal-sema-translator.git", rev = "3f41813dd63904c7e2b3da4382eff64ed1bf12fe" }
-sema-translator        = { git = "https://github.com/LiGoldragon/sema-translator.git", rev = "deb9f04475268d5ec29bb7010f953cafdc0ef398", default-features = false, features = ["bootstrap"] }
-structural-codec       = { git = "https://github.com/LiGoldragon/structural-codec.git", rev = "879d76f91facedd6d5cbca79e282260e1beb9478" }
+sema-translator        = { git = "https://github.com/LiGoldragon/sema-translator.git", rev = "b617908d0693bda813477d37391a2b688078be96", default-features = false, features = ["bootstrap"] }
+structural-codec       = { git = "https://github.com/LiGoldragon/structural-codec.git", rev = "70ef879bc99eb247b7661169794ee189d45c62ff" }
 bs58                   = "0.5"
 prettyplease           = "0.2"
 proc-macro2            = "1"
