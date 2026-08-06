@@ -1,4 +1,4 @@
-//! Typed structural records for the bounded Rust fixture surface.
+//! Typed structural records released from the sealed Rust vocabulary.
 
 use std::collections::BTreeMap;
 

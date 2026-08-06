@@ -19,7 +19,7 @@ its configured balanced brace boundary. Delimiter children are recursive,
 strings and comments are opaque, and every node carries exact source bounds.
 
 Pass two is expectation-driven. Complete archived position records describe
-the fixture vocabulary:
+the sealed Rust vocabulary:
 
 - newtype and enumeration items;
 - unit variants and tuple variants with one or more positional fields;

@@ -19,15 +19,15 @@
 
 mod codec;
 mod error;
-mod fixture_vocabulary;
 mod identifier;
+mod sealed_rust_vocabulary;
 
 pub use codec::{
     InterfaceRustEmission, InterfaceRustRoleIds, RustLogos, RustTypePath, RustTypePathResolver,
 };
 pub use error::{EncodedIdCodecRefusal, Error, RustIdentifierRefusal};
-pub use fixture_vocabulary::ReferencedTypePosition;
 pub use identifier::{
     BASE58BTC_MULTIBASE_PREFIX, ENCODED_ID_FORMAT_VERSION, FixtureRustEmittedIdentifier,
     FixtureRustNameProjectionTable, RustEncodedIdCodec,
 };
+pub use sealed_rust_vocabulary::ReferencedTypePosition;

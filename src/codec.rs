@@ -22,7 +22,7 @@ use structural_codec::{
 
 use sema_translator::bootstrap::SealedRustVocabulary;
 
-use crate::fixture_vocabulary::{
+use crate::sealed_rust_vocabulary::{
     ApplicationBody, ApplicationHead, ApplicationPayload, ApplicationRoot, ENUM_CUE, ItemBody,
     ItemElements, ItemKeyword, ItemName, ItemRoot, ItemTerminator, ItemVisibility,
     ReferencedTypePosition, RustVocabulary, RustVocabularyRule, STRUCT_CUE, TupleFieldRoot,
