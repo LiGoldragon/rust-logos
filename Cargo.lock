@@ -115,6 +115,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "core-ethos"
+version = "0.29.1"
+source = "git+https://github.com/LiGoldragon/core-ethos.git?rev=43b48c779c54ee9f05cbcc111d5d88074b162461#43b48c779c54ee9f05cbcc111d5d88074b162461"
+dependencies = [
+ "name-table 0.3.0",
+ "raw-discovery",
+ "rkyv",
+ "signal-sema-translator",
+ "structural-codec",
+ "thiserror",
+]
+
+[[package]]
 name = "core-logos"
 version = "0.26.1"
 source = "git+https://github.com/LiGoldragon/core-logos.git?rev=734363bd5fca01c7dab46028f4a36e3ce6ae6650#734363bd5fca01c7dab46028f4a36e3ce6ae6650"
@@ -385,7 +398,7 @@ dependencies = [
 
 [[package]]
 name = "rust-logos"
-version = "0.30.1"
+version = "0.31.0"
 dependencies = [
  "bs58",
  "core-logos",
@@ -396,6 +409,7 @@ dependencies = [
  "quote",
  "raw-discovery",
  "rkyv",
+ "sema-translator",
  "signal-sema-translator",
  "structural-codec",
  "syn 2.0.119",
@@ -407,6 +421,18 @@ name = "rustversion"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
+
+[[package]]
+name = "sema-translator"
+version = "0.9.0"
+source = "git+https://github.com/LiGoldragon/sema-translator.git?rev=4bd6e8fa0c3139be94a83c7ca7975bd8153eb9f5#4bd6e8fa0c3139be94a83c7ca7975bd8153eb9f5"
+dependencies = [
+ "core-ethos",
+ "name-table 0.3.0",
+ "signal-sema-translator",
+ "structural-codec",
+ "thiserror",
+]
 
 [[package]]
 name = "shlex"

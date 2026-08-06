@@ -10,6 +10,7 @@ use raw_discovery::{
     ProfileRevision, SealedCueTerminatedBlockDiscoveryConfiguration, SealedTokenProfile,
     TokenProfileData, Trigger, TriggerDefinition, TriggerIdentifier, TriggerSet,
 };
+use sema_translator::bootstrap::{RustVocabularyTerm, SealedRustVocabulary};
 use signal_sema_translator::{VocabularyEncodedId, VocabularyRoot};
 use structural_codec::{
     AcceptedDecodeForm, AddressedStructuralTable, AtomDescriptor, BorrowedFieldView,
@@ -424,7 +425,7 @@ impl StructureRecord<VocabularyRoot> for TypeApplicationRecord {
     }
 }
 
-pub type FixtureRustRule = RuleCoproduct<
+pub(crate) type RustVocabularyRule = RuleCoproduct<
     RustItemRecord,
     RuleCoproduct<
         UnitVariantRecord,
@@ -439,7 +440,7 @@ pub type FixtureRustRule = RuleCoproduct<
 >;
 
 #[derive(Clone, Debug)]
-pub struct FixtureRustVocabularyIds {
+pub(crate) struct RustVocabularyIds {
     newtype_item: EncodedTypeId<VocabularyRoot>,
     enumeration_item: EncodedTypeId<VocabularyRoot>,
     variant: EncodedTypeId<VocabularyRoot>,
@@ -452,31 +453,36 @@ pub struct FixtureRustVocabularyIds {
     semicolon: VocabularyEncodedId,
 }
 
-impl FixtureRustVocabularyIds {
+impl RustVocabularyIds {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        newtype_item: VocabularyEncodedId,
-        enumeration_item: VocabularyEncodedId,
-        variant: VocabularyEncodedId,
-        tuple_field: VocabularyEncodedId,
-        type_reference: VocabularyEncodedId,
-        struct_keyword: VocabularyEncodedId,
-        enum_keyword: VocabularyEncodedId,
-        public_keyword: VocabularyEncodedId,
-        comma: VocabularyEncodedId,
-        semicolon: VocabularyEncodedId,
-    ) -> Self {
+    fn from_sealed(vocabulary: &SealedRustVocabulary) -> Self {
         Self {
-            newtype_item: EncodedTypeId::new(newtype_item),
-            enumeration_item: EncodedTypeId::new(enumeration_item),
-            variant: EncodedTypeId::new(variant),
-            tuple_field: EncodedTypeId::new(tuple_field),
-            type_reference: EncodedTypeId::new(type_reference),
-            struct_keyword,
-            enum_keyword,
-            public_keyword,
-            comma,
-            semicolon,
+            newtype_item: EncodedTypeId::new(
+                vocabulary.identity(RustVocabularyTerm::NewtypeItem).clone(),
+            ),
+            enumeration_item: EncodedTypeId::new(
+                vocabulary
+                    .identity(RustVocabularyTerm::EnumerationItem)
+                    .clone(),
+            ),
+            variant: EncodedTypeId::new(vocabulary.identity(RustVocabularyTerm::Variant).clone()),
+            tuple_field: EncodedTypeId::new(
+                vocabulary.identity(RustVocabularyTerm::TupleField).clone(),
+            ),
+            type_reference: EncodedTypeId::new(
+                vocabulary
+                    .identity(RustVocabularyTerm::TypeReference)
+                    .clone(),
+            ),
+            struct_keyword: vocabulary
+                .identity(RustVocabularyTerm::StructKeyword)
+                .clone(),
+            enum_keyword: vocabulary.identity(RustVocabularyTerm::EnumKeyword).clone(),
+            public_keyword: vocabulary
+                .identity(RustVocabularyTerm::PublicKeyword)
+                .clone(),
+            comma: vocabulary.identity(RustVocabularyTerm::Comma).clone(),
+            semicolon: vocabulary.identity(RustVocabularyTerm::Semicolon).clone(),
         }
     }
 
@@ -521,19 +527,17 @@ impl FixtureRustVocabularyIds {
     }
 }
 
-pub struct FixtureRustVocabulary {
-    ids: FixtureRustVocabularyIds,
-    table: AddressedStructuralTable<VocabularyRoot, FixtureRustRule>,
+pub(crate) struct RustVocabulary {
+    ids: RustVocabularyIds,
+    table: AddressedStructuralTable<VocabularyRoot, RustVocabularyRule>,
     rust_profile: SealedTokenProfile,
     rust_discovery: SealedCueTerminatedBlockDiscoveryConfiguration,
     fixed_names: BTreeMap<VocabularyEncodedId, Name>,
 }
 
-impl FixtureRustVocabulary {
-    pub fn seal<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
-        ids: FixtureRustVocabularyIds,
-        rust_names: &Resolver,
-    ) -> Result<Self, Error> {
+impl RustVocabulary {
+    pub(crate) fn from_sealed(rust_names: &SealedRustVocabulary) -> Result<Self, Error> {
+        let ids = RustVocabularyIds::from_sealed(rust_names);
         for (position, encoded_type) in [
             ("newtype item type", ids.newtype_item()),
             ("enumeration item type", ids.enumeration_item()),
@@ -581,11 +585,13 @@ impl FixtureRustVocabulary {
         })
     }
 
-    pub fn structuretree(&self) -> &AddressedStructuralTable<VocabularyRoot, FixtureRustRule> {
+    pub(crate) fn structuretree(
+        &self,
+    ) -> &AddressedStructuralTable<VocabularyRoot, RustVocabularyRule> {
         &self.table
     }
 
-    pub fn ids(&self) -> &FixtureRustVocabularyIds {
+    pub(crate) fn ids(&self) -> &RustVocabularyIds {
         &self.ids
     }
 
@@ -598,7 +604,7 @@ impl FixtureRustVocabulary {
     }
 }
 
-impl EncodedNameResolver<VocabularyRoot> for FixtureRustVocabulary {
+impl EncodedNameResolver<VocabularyRoot> for RustVocabulary {
     fn resolve(&self, encoded_id: &VocabularyEncodedId) -> Option<&Name> {
         self.fixed_names.get(encoded_id)
     }
@@ -646,10 +652,10 @@ fn validate_fixed_word<Resolver: EncodedNameResolver<VocabularyRoot> + ?Sized>(
 }
 
 fn seal_table(
-    ids: &FixtureRustVocabularyIds,
+    ids: &RustVocabularyIds,
     profile: &SealedTokenProfile,
-) -> Result<AddressedStructuralTable<VocabularyRoot, FixtureRustRule>, Error> {
-    let newtype = FixtureRustRule::Left(RustItemRecord::new(
+) -> Result<AddressedStructuralTable<VocabularyRoot, RustVocabularyRule>, Error> {
+    let newtype = RustVocabularyRule::Left(RustItemRecord::new(
         PARENTHESIS,
         ids.tuple_field().clone(),
         Some(1),
@@ -658,7 +664,7 @@ fn seal_table(
         ids.semicolon().clone(),
         true,
     )?);
-    let enumeration = FixtureRustRule::Left(RustItemRecord::new(
+    let enumeration = RustVocabularyRule::Left(RustItemRecord::new(
         BRACE,
         ids.variant().clone(),
         None,
@@ -667,27 +673,27 @@ fn seal_table(
         ids.semicolon().clone(),
         false,
     )?);
-    let unit_variant = FixtureRustRule::Right(RuleCoproduct::Left(UnitVariantRecord::new(
+    let unit_variant = RustVocabularyRule::Right(RuleCoproduct::Left(UnitVariantRecord::new(
         ids.comma().clone(),
     )?));
-    let tuple_variant = FixtureRustRule::Right(RuleCoproduct::Right(RuleCoproduct::Left(
+    let tuple_variant = RustVocabularyRule::Right(RuleCoproduct::Right(RuleCoproduct::Left(
         TupleVariantRecord::new(ids.tuple_field().clone(), ids.comma().clone())?,
     )));
-    let tuple_field = FixtureRustRule::Right(RuleCoproduct::Right(RuleCoproduct::Right(
+    let tuple_field = RustVocabularyRule::Right(RuleCoproduct::Right(RuleCoproduct::Right(
         RuleCoproduct::Left(TupleFieldRecord::new(
             ids.type_reference().clone(),
             ids.public_keyword().clone(),
             ids.comma().clone(),
         )?),
     )));
-    let identity_reference = FixtureRustRule::Right(RuleCoproduct::Right(RuleCoproduct::Right(
+    let identity_reference = RustVocabularyRule::Right(RuleCoproduct::Right(RuleCoproduct::Right(
         RuleCoproduct::Right(RuleCoproduct::Left(ReferencedTypeRecord::new()?)),
     )));
-    let application_reference = FixtureRustRule::Right(RuleCoproduct::Right(RuleCoproduct::Right(
-        RuleCoproduct::Right(RuleCoproduct::Right(TypeApplicationRecord::new(
-            ids.type_reference().clone(),
-        )?)),
-    )));
+    let application_reference = RustVocabularyRule::Right(RuleCoproduct::Right(
+        RuleCoproduct::Right(RuleCoproduct::Right(RuleCoproduct::Right(
+            TypeApplicationRecord::new(ids.type_reference().clone())?,
+        ))),
+    ));
 
     let entries = vec![
         one_constructor(ids.newtype_item(), CONSTRUCTOR_IDENTITY, newtype),
@@ -730,15 +736,15 @@ fn seal_table(
 fn one_constructor(
     encoded_type: &EncodedTypeId<VocabularyRoot>,
     local: u16,
-    rule: FixtureRustRule,
-) -> StructuralEntry<VocabularyRoot, FixtureRustRule> {
+    rule: RustVocabularyRule,
+) -> StructuralEntry<VocabularyRoot, RustVocabularyRule> {
     constructors(encoded_type, vec![(local, rule)])
 }
 
 fn constructors(
     encoded_type: &EncodedTypeId<VocabularyRoot>,
-    rules: Vec<(u16, FixtureRustRule)>,
-) -> StructuralEntry<VocabularyRoot, FixtureRustRule> {
+    rules: Vec<(u16, RustVocabularyRule)>,
+) -> StructuralEntry<VocabularyRoot, RustVocabularyRule> {
     StructuralEntry::new(
         encoded_type.clone(),
         rules

@@ -15,8 +15,7 @@
 //!
 //! Production emission names every Universal identity by the canonical
 //! Base58BTC textual encoding of its complete root-fronted encoded-ID chain.
-//! Rust-owned vocabulary keeps its immutable Rust spelling. The older
-//! caller-projected surface remains available only for fixture witnesses.
+//! Rust-owned vocabulary is released only by the naming authority.
 
 mod codec;
 mod error;
@@ -28,9 +27,7 @@ pub use codec::{
     InterfaceRustEmission, InterfaceRustRoleIds, RustLogos, RustTypePath, RustTypePathResolver,
 };
 pub use error::{EncodedIdCodecRefusal, Error, RustIdentifierRefusal};
-pub use fixture_vocabulary::{
-    FixtureRustRule, FixtureRustVocabulary, FixtureRustVocabularyIds, ReferencedTypePosition,
-};
+pub use fixture_vocabulary::ReferencedTypePosition;
 pub use identifier::{
     BASE58BTC_MULTIBASE_PREFIX, ENCODED_ID_FORMAT_VERSION, FixtureRustEmittedIdentifier,
     FixtureRustNameProjectionTable, RustEncodedIdCodec,

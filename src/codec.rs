@@ -20,10 +20,12 @@ use structural_codec::{
     FieldValue, NameOccurrence, ResolvedReference, StructuralEvaluator, StructuralValue,
 };
 
+use sema_translator::bootstrap::SealedRustVocabulary;
+
 use crate::fixture_vocabulary::{
-    ApplicationBody, ApplicationHead, ApplicationPayload, ApplicationRoot, ENUM_CUE,
-    FixtureRustRule, FixtureRustVocabulary, ItemBody, ItemElements, ItemKeyword, ItemName,
-    ItemRoot, ItemTerminator, ItemVisibility, ReferencedTypePosition, STRUCT_CUE, TupleFieldRoot,
+    ApplicationBody, ApplicationHead, ApplicationPayload, ApplicationRoot, ENUM_CUE, ItemBody,
+    ItemElements, ItemKeyword, ItemName, ItemRoot, ItemTerminator, ItemVisibility,
+    ReferencedTypePosition, RustVocabulary, RustVocabularyRule, STRUCT_CUE, TupleFieldRoot,
     TupleFieldTerminator, TupleFieldType, TupleFieldVisibility, VariantBody, VariantFields,
     VariantName, VariantRoot, VariantTerminator, constructor_for, ordered_sequence_value,
 };
@@ -191,20 +193,17 @@ impl InterfaceRustRoleIds {
     }
 }
 
-/// Bidirectional Rust view for the bounded fixture breadth.
+/// Bidirectional Rust view for authority-sealed bootstrap Rust.
 pub struct RustLogos {
-    vocabulary: FixtureRustVocabulary,
+    vocabulary: RustVocabulary,
 }
 
 impl RustLogos {
-    /// Seat the already-sealed typed Rust fixture vocabulary.
-    pub fn new(vocabulary: FixtureRustVocabulary) -> Self {
-        Self { vocabulary }
-    }
-
-    /// Exact typed structural data used for fixture evaluation.
-    pub fn vocabulary(&self) -> &FixtureRustVocabulary {
-        &self.vocabulary
+    /// Build from the naming authority's sealed Rust vocabulary.
+    pub fn from_authority(vocabulary: &SealedRustVocabulary) -> Result<Self, Error> {
+        Ok(Self {
+            vocabulary: RustVocabulary::from_sealed(vocabulary)?,
+        })
     }
 
     /// Decode complete fixture items after cue-to-termination discovery.
@@ -221,7 +220,7 @@ impl RustLogos {
         if tree.root_blocks().is_empty() {
             return Err(Error::NoRustItems);
         }
-        let evaluator = StructuralEvaluator::<VocabularyRoot, FixtureRustRule>::new(
+        let evaluator = StructuralEvaluator::<VocabularyRoot, RustVocabularyRule>::new(
             self.vocabulary.structuretree(),
         )?;
         let mut items = Vec::with_capacity(tree.root_blocks().len());
@@ -335,7 +334,7 @@ impl RustLogos {
         resolver: &Resolver,
         interface_roles: Option<&InterfaceRustRoleIds>,
     ) -> Result<String, Error> {
-        let evaluator = StructuralEvaluator::<VocabularyRoot, FixtureRustRule>::new(
+        let evaluator = StructuralEvaluator::<VocabularyRoot, RustVocabularyRule>::new(
             self.vocabulary.structuretree(),
         )?;
         let mut items = Vec::with_capacity(logos.items().len());
@@ -1836,7 +1835,7 @@ fn offset_decode_error(
 }
 
 struct FixtureResolver<'a> {
-    vocabulary: &'a FixtureRustVocabulary,
+    vocabulary: &'a RustVocabulary,
     projections: &'a FixtureRustNameProjectionTable,
 }
 
@@ -1859,7 +1858,7 @@ impl RustEmissionResolver for FixtureResolver<'_> {
 }
 
 struct ProductionResolver<'a, Allocated: ?Sized, Types: ?Sized> {
-    vocabulary: &'a FixtureRustVocabulary,
+    vocabulary: &'a RustVocabulary,
     allocated: &'a Allocated,
     types: &'a Types,
     generated: BTreeMap<VocabularyEncodedId, Name>,
@@ -1887,7 +1886,7 @@ impl<Allocated: EncodedNameResolver<VocabularyRoot> + ?Sized, Types: RustTypePat
 }
 
 struct OffsetBindings<'a, Bindings: ?Sized> {
-    vocabulary: &'a FixtureRustVocabulary,
+    vocabulary: &'a RustVocabulary,
     inner: &'a Bindings,
     source: &'a str,
     offset: usize,

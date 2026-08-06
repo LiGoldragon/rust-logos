@@ -15,10 +15,10 @@ use core_logos::{
 };
 use name_table::{LocalEncodedId, Name};
 use rust_logos::{
-    Error, FixtureRustEmittedIdentifier, FixtureRustNameProjectionTable, FixtureRustVocabulary,
-    FixtureRustVocabularyIds, InterfaceRustEmission, InterfaceRustRoleIds, RustEncodedIdCodec,
-    RustLogos, RustTypePath, RustTypePathResolver,
+    Error, FixtureRustEmittedIdentifier, FixtureRustNameProjectionTable, InterfaceRustEmission,
+    InterfaceRustRoleIds, RustEncodedIdCodec, RustLogos, RustTypePath, RustTypePathResolver,
 };
+use sema_translator::bootstrap::SealedRustVocabulary;
 use signal_sema_translator::{VocabularyEncodedId, VocabularyRoot};
 use structural_codec::EncodedNameResolver;
 
@@ -63,49 +63,8 @@ impl RustTypePathResolver for TypePaths {
 }
 
 fn rust_logos() -> RustLogos {
-    let newtype_item = encoded(VocabularyRoot::Rust, &[10]);
-    let enumeration_item = encoded(VocabularyRoot::Rust, &[11]);
-    let variant = encoded(VocabularyRoot::Rust, &[12]);
-    let tuple_field = encoded(VocabularyRoot::Rust, &[13]);
-    let type_reference = encoded(VocabularyRoot::Rust, &[14]);
-    let struct_keyword = encoded(VocabularyRoot::Rust, &[1]);
-    let enum_keyword = encoded(VocabularyRoot::Rust, &[2]);
-    let public_keyword = encoded(VocabularyRoot::Rust, &[3]);
-    let comma = encoded(VocabularyRoot::Rust, &[4]);
-    let semicolon = encoded(VocabularyRoot::Rust, &[5]);
-    let mut names = Names::default();
-    for (identity, spelling) in [
-        (newtype_item.clone(), "NewtypeItemRecord"),
-        (enumeration_item.clone(), "EnumerationItemRecord"),
-        (variant.clone(), "VariantRecord"),
-        (tuple_field.clone(), "TupleFieldRecord"),
-        (type_reference.clone(), "TypeReferenceRecord"),
-        (struct_keyword.clone(), "struct"),
-        (enum_keyword.clone(), "enum"),
-        (public_keyword.clone(), "pub"),
-        (comma.clone(), ","),
-        (semicolon.clone(), ";"),
-    ] {
-        names.add(identity, spelling);
-    }
-    RustLogos::new(
-        FixtureRustVocabulary::seal(
-            FixtureRustVocabularyIds::new(
-                newtype_item,
-                enumeration_item,
-                variant,
-                tuple_field,
-                type_reference,
-                struct_keyword,
-                enum_keyword,
-                public_keyword,
-                comma,
-                semicolon,
-            ),
-            &names,
-        )
-        .expect("sealed fixture Rust vocabulary"),
-    )
+    RustLogos::from_authority(&SealedRustVocabulary::bootstrap())
+        .expect("authority releases the bootstrap Rust vocabulary")
 }
 
 fn projections(entries: &[(VocabularyEncodedId, &'static str)]) -> FixtureRustNameProjectionTable {
