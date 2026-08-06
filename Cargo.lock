@@ -116,8 +116,8 @@ dependencies = [
 
 [[package]]
 name = "core-logos"
-version = "0.25.0"
-source = "git+https://github.com/LiGoldragon/core-logos.git?rev=abee4036fbeb58c767ef7dc3489804e2afd5c6e1#abee4036fbeb58c767ef7dc3489804e2afd5c6e1"
+version = "0.26.0"
+source = "git+https://github.com/LiGoldragon/core-logos.git?rev=f3655c5ba60d2aec5a6bffa0962eef6b5964ee4e#f3655c5ba60d2aec5a6bffa0962eef6b5964ee4e"
 dependencies = [
  "content-identity 0.3.0",
  "content-identity 0.5.0",
@@ -385,7 +385,7 @@ dependencies = [
 
 [[package]]
 name = "rust-logos"
-version = "0.29.0"
+version = "0.30.0"
 dependencies = [
  "bs58",
  "core-logos",
@@ -462,8 +462,8 @@ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
 name = "structural-codec"
-version = "0.19.0"
-source = "git+https://github.com/LiGoldragon/structural-codec.git?rev=413e3744569ca237e837a1fd57d9ba6ad6adc3de#413e3744569ca237e837a1fd57d9ba6ad6adc3de"
+version = "0.20.0"
+source = "git+https://github.com/LiGoldragon/structural-codec.git?rev=879d76f91facedd6d5cbca79e282260e1beb9478#879d76f91facedd6d5cbca79e282260e1beb9478"
 dependencies = [
  "content-identity 0.3.0",
  "name-table 0.3.0",
