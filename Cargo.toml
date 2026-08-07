@@ -21,6 +21,10 @@ path = "tests/slice_one.rs"
 name = "slice_two"
 path = "tests/slice_two.rs"
 
+[[test]]
+name = "wire_derives"
+path = "tests/wire_derives.rs"
+
 [dependencies]
 core-logos             = { git = "https://github.com/LiGoldragon/core-logos.git", rev = "b9bf013f6013" }
 name-table             = { git = "https://github.com/LiGoldragon/name-table.git", rev = "7dd5db15c16b4246c83d049c759415d3252a7d43" }

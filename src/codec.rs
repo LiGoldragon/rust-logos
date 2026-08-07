@@ -2,8 +2,8 @@
 
 use core_logos::{
     WholeLogos, WholeLogosAssociatedTypeBinding, WholeLogosEnumeration, WholeLogosItem,
-    WholeLogosNewtype, WholeLogosStruct, WholeLogosTable,
-    WholeLogosTraitDef, WholeLogosTraitImpl, WholeLogosTraitMethod, WholeLogosTypeReference,
+    WholeLogosNewtype, WholeLogosStruct, WholeLogosTable, WholeLogosTraitDef, WholeLogosTraitImpl,
+    WholeLogosTraitMethod, WholeLogosTypeAttributes, WholeLogosTypeReference,
     WholeLogosVariantPayload, WholeLogosVisibility,
 };
 use name_table::{EncodedName, NameView};
@@ -108,13 +108,32 @@ pub trait InterfaceRustEmission {
 }
 
 /// Rust textual projection for a lowered Whole Logos carrier.
-#[derive(Default)]
-pub struct RustLogos;
+///
+/// When `refusal_display_trait` is set, the emitter identifies trait
+/// implementations matching that encoded identity and emits `Display` and
+/// `std::error::Error` implementations for the implementing types.
+pub struct RustLogos {
+    refusal_display_trait: Option<EncodedName>,
+}
 
 impl RustLogos {
-    /// Construct the stateless Rust emitter.
+    /// Construct the Rust emitter with no role-specific behavior.
     pub const fn new() -> Self {
-        Self
+        Self {
+            refusal_display_trait: None,
+        }
+    }
+
+    /// Configure the emitter to generate `Display` and `std::error::Error`
+    /// implementations for types that implement the given trait identity.
+    ///
+    /// The Refusal role trait requires `std::error::Error`, which requires
+    /// `Debug + Display`. The emitter derives `Debug` through the Wire
+    /// attribute preamble; this method adds the remaining `Display` and
+    /// `Error` implementations.
+    pub const fn with_refusal_display_trait(mut self, trait_identity: EncodedName) -> Self {
+        self.refusal_display_trait = Some(trait_identity);
+        self
     }
 
     /// Emit Rust solely through the supplied read-only authority name view.
@@ -133,12 +152,43 @@ impl RustLogos {
         names: &View,
         paths: &Paths,
     ) -> Result<String, Error> {
-        logos
+        let mut sections: Vec<String> = logos
             .items()
             .iter()
             .map(|item| self.item(item, names, paths))
-            .collect::<Result<Vec<_>, _>>()
-            .map(|items| items.join("\n\n"))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // Emit Display and std::error::Error for types implementing the
+        // Refusal role trait, identified by the configured trait identity.
+        if let Some(refusal_trait) = &self.refusal_display_trait {
+            for item in logos.items() {
+                if let WholeLogosItem::TraitImpl(trait_impl) = item {
+                    if let WholeLogosTypeReference::Identity(implemented) =
+                        trait_impl.implemented_trait()
+                    {
+                        if implemented == refusal_trait {
+                            if let WholeLogosTypeReference::Identity(implementing) =
+                                trait_impl.implementing_type()
+                            {
+                                let type_name = self.name(implementing, names)?;
+                                sections.push(format!(
+                                    "impl std::fmt::Display for {type_name} {{\n    \
+                                     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {{\n        \
+                                     std::fmt::Debug::fmt(self, formatter)\n    \
+                                     }}\n\
+                                     }}"
+                                ));
+                                sections.push(format!(
+                                    "impl std::error::Error for {type_name} {{}}"
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(sections.join("\n\n"))
     }
 
     fn item<View: NameView + ?Sized, Paths: RustTypePathResolver + ?Sized>(
@@ -164,7 +214,8 @@ impl RustLogos {
         paths: &Paths,
     ) -> Result<String, Error> {
         Ok(format!(
-            "{}struct {}({}{});",
+            "{}{}struct {}({}{});",
+            derive_preamble(value.attributes()),
             visibility(value.visibility()),
             self.name(value.name(), names)?,
             visibility(value.wrapped_visibility()),
@@ -179,7 +230,8 @@ impl RustLogos {
         paths: &Paths,
     ) -> Result<String, Error> {
         Ok(format!(
-            "{}struct {}({});",
+            "{}{}struct {}({});",
+            derive_preamble(value.attributes()),
             visibility(value.visibility()),
             self.name(value.name(), names)?,
             self.references(value.fields(), names, paths)?
@@ -207,7 +259,8 @@ impl RustLogos {
             })
             .collect::<Result<Vec<_>, Error>>()?;
         Ok(format!(
-            "{}enum {} {{\n{}\n}}",
+            "{}{}enum {} {{\n{}\n}}",
+            derive_preamble(value.attributes()),
             visibility(value.visibility()),
             self.name(value.name(), names)?,
             variants.join("\n")
@@ -389,10 +442,26 @@ fn visibility(value: &WholeLogosVisibility) -> &'static str {
         WholeLogosVisibility::Private => "",
     }
 }
+
+/// The canonical derive preamble for each attribute policy.
+///
+/// `Plain` emits nothing (Nexus types, role-free vocabulary).
+/// `Wire` and `Stored` emit the rkyv serialization surface plus `Clone`,
+/// `Debug`, `PartialEq`, and `Eq`.
+fn derive_preamble(attributes: WholeLogosTypeAttributes) -> &'static str {
+    match attributes {
+        WholeLogosTypeAttributes::Plain => "",
+        WholeLogosTypeAttributes::Wire | WholeLogosTypeAttributes::Stored => {
+            "#[derive(Clone, Debug, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]\n"
+        }
+    }
+}
+
 fn type_translation(spelling: String) -> String {
-    if spelling == "Vector" {
-        "Vec".to_owned()
-    } else {
-        spelling
+    match spelling.as_str() {
+        "Vector" => "Vec".to_owned(),
+        "Unit" => "()".to_owned(),
+        "Boolean" => "bool".to_owned(),
+        _ => spelling,
     }
 }
