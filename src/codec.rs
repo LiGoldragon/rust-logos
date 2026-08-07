@@ -331,11 +331,17 @@ impl RustLogos {
                     .map(Ok)
                     .unwrap_or_else(|| self.name(name, names).map(type_translation))
             }
-            WholeLogosTypeReference::Application(application) => Ok(format!(
-                "{}<{}>",
-                type_translation(self.name(application.head(), names)?),
-                self.references(application.arguments(), names, paths)?
-            )),
+            WholeLogosTypeReference::Application(application) => {
+                let head = match paths.resolve_type_path(application.head()) {
+                    Some(resolved) => resolved.render(),
+                    None => type_translation(self.name(application.head(), names)?),
+                };
+                Ok(format!(
+                    "{}<{}>",
+                    head,
+                    self.references(application.arguments(), names, paths)?
+                ))
+            }
         }
     }
 
