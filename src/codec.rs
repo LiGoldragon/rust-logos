@@ -347,7 +347,7 @@ impl RustLogos {
             }
             WholeLogosTypeReference::Application(application) => Ok(format!(
                 "{}<{}>",
-                self.name(application.head(), names)?,
+                type_translation(self.name(application.head(), names)?),
                 self.references(application.arguments(), names, paths)?
             )),
         }

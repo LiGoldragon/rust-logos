@@ -1,5 +1,6 @@
 use core_logos::{
-    WholeLogos, WholeLogosItem, WholeLogosStruct, WholeLogosTypeReference, WholeLogosVisibility,
+    WholeLogos, WholeLogosItem, WholeLogosStruct, WholeLogosTypeApplication,
+    WholeLogosTypeReference, WholeLogosVisibility,
 };
 use name_table::{
     EncodedName, FilePlacement, ModulePlacement, NameAssociation, NameView, TextualMetadata,
@@ -22,13 +23,23 @@ fn name(seed: u8) -> EncodedName {
 }
 
 #[test]
-fn vector_translation_happens_only_at_rust_emission() {
+fn vector_translation_covers_scalar_parameter_and_application_heads() {
     let declaration = name(3);
     let vector = name(4);
     let logos = WholeLogos::new(vec![WholeLogosItem::Struct(WholeLogosStruct::new(
         WholeLogosVisibility::Public,
         declaration,
-        vec![WholeLogosTypeReference::Identity(vector)],
+        vec![
+            WholeLogosTypeReference::Identity(vector),
+            WholeLogosTypeReference::Parameter(vector),
+            WholeLogosTypeReference::Application(
+                WholeLogosTypeApplication::new(
+                    vector,
+                    vec![WholeLogosTypeReference::Identity(vector)],
+                )
+                .expect("nonempty application"),
+            ),
+        ],
     ))]);
     let names = Names(BTreeMap::from([
         (
@@ -50,6 +61,6 @@ fn vector_translation_happens_only_at_rust_emission() {
     ]));
     assert_eq!(
         RustLogos::new().emit(&logos, &names).expect("emit"),
-        "pub struct Collection(Vec);"
+        "pub struct Collection(Vec, Vec, Vec<Vec>);"
     );
 }
