@@ -2,7 +2,7 @@
 
 use core_logos::{
     WholeLogos, WholeLogosAssociatedTypeBinding, WholeLogosEnumeration, WholeLogosItem,
-    WholeLogosNewtype, WholeLogosStreamLifecycle, WholeLogosStruct, WholeLogosTable,
+    WholeLogosNewtype, WholeLogosStruct, WholeLogosTable,
     WholeLogosTraitDef, WholeLogosTraitImpl, WholeLogosTraitMethod, WholeLogosTypeReference,
     WholeLogosVariantPayload, WholeLogosVisibility,
 };
@@ -154,7 +154,6 @@ impl RustLogos {
             WholeLogosItem::TraitDef(value) => self.trait_definition(value, names, paths),
             WholeLogosItem::TraitImpl(value) => self.trait_implementation(value, names, paths),
             WholeLogosItem::Table(value) => self.table(value, names, paths),
-            WholeLogosItem::StreamLifecycle(value) => self.stream(value, names, paths),
         }
     }
 
@@ -302,19 +301,6 @@ impl RustLogos {
             self.name(value.name(), names)?,
             self.reference(value.record(), names, paths)?,
             self.reference(value.key(), names, paths)?
-        ))
-    }
-
-    fn stream<View: NameView + ?Sized, Paths: RustTypePathResolver + ?Sized>(
-        &self,
-        value: &WholeLogosStreamLifecycle,
-        names: &View,
-        paths: &Paths,
-    ) -> Result<String, Error> {
-        Ok(format!(
-            "type {} = protos::Stream<{}>;",
-            self.name(value.stream(), names)?,
-            self.reference(value.initiation().success().event(), names, paths)?
         ))
     }
 

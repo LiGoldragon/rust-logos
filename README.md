@@ -10,7 +10,7 @@ paths through `RustTypePathResolver`.
 
 `RustLogos` is a stateless emitter. It preserves the ordering and typed shape
 of the supplied Whole Logos items, emitting supported structs, enums, traits,
-implementations, tables, and stream lifecycle declarations. Rust-specific
+implementations, and tables. Rust-specific
 spelling translation is intentionally local to emission: `Vector` is emitted
 as `Vec`, including when it is the head of a type application.
 
