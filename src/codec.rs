@@ -447,12 +447,20 @@ fn visibility(value: &WholeLogosVisibility) -> &'static str {
 ///
 /// `Plain` emits nothing (Nexus types, role-free vocabulary).
 /// `Wire` and `Stored` emit the rkyv serialization surface plus `Clone`,
-/// `Debug`, `PartialEq`, and `Eq`.
+/// `Debug`, `PartialEq`, and `Eq`. The rkyv bounds annotations are
+/// unconditional: they provide the explicit bytecheck and serializer
+/// bounds that types containing `Vec<T>` need for rkyv 0.8 with the
+/// `bytecheck` feature, and are no-ops on types without allocations.
 fn derive_preamble(attributes: WholeLogosTypeAttributes) -> &'static str {
     match attributes {
         WholeLogosTypeAttributes::Plain => "",
         WholeLogosTypeAttributes::Wire | WholeLogosTypeAttributes::Stored => {
-            "#[derive(Clone, Debug, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]\n"
+            "#[derive(Clone, Debug, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]\n\
+             #[rkyv(\n    \
+             serialize_bounds(__S: rkyv::ser::Writer + rkyv::ser::Allocator, __S::Error: rkyv::rancor::Source),\n    \
+             deserialize_bounds(__D::Error: rkyv::rancor::Source),\n    \
+             bytecheck(bounds(__C: rkyv::validation::ArchiveContext, __C::Error: rkyv::rancor::Source)),\n\
+             )]\n"
         }
     }
 }
@@ -462,6 +470,10 @@ fn type_translation(spelling: String) -> String {
         "Vector" => "Vec".to_owned(),
         "Unit" => "()".to_owned(),
         "Boolean" => "bool".to_owned(),
+        // [assumption] Integer -> i64 pending psyche ruling on the canonical
+        // Rust mapping for the Ethos Integer builtin. The old pipeline used
+        // u64 in some consumers and i64 in others; i64 is the signed default.
+        "Integer" => "i64".to_owned(),
         _ => spelling,
     }
 }

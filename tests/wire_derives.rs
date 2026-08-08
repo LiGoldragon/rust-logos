@@ -62,10 +62,15 @@ fn wire_attributes_emit_derive_preamble_on_struct() {
 
     let emitted = RustLogos::new().emit(&logos, &names).expect("emit");
 
-    assert_eq!(
-        emitted,
-        "#[derive(Clone, Debug, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]\npub struct Entry(String);"
+    assert!(
+        emitted.starts_with("#[derive(Clone, Debug, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]"),
+        "expected derive preamble, got: {emitted}"
     );
+    assert!(
+        emitted.contains("#[rkyv("),
+        "expected rkyv bounds annotation, got: {emitted}"
+    );
+    assert!(emitted.ends_with("pub struct Entry(String);"));
 }
 
 #[test]
