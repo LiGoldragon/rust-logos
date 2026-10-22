@@ -26,7 +26,7 @@ name = "wire_derives"
 path = "tests/wire_derives.rs"
 
 [dependencies]
-core-logos             = { git = "https://github.com/LiGoldragon/core-logos.git", rev = "b9bf013f6013" }
+core-logos             = { git = "https://github.com/LiGoldragon/core-logos.git", rev = "c9025b70dbce85ebc9211d58ba4a641c5a189266" }
 name-table             = { git = "https://github.com/LiGoldragon/name-table.git", rev = "7dd5db15c16b4246c83d049c759415d3252a7d43" }
 syn                    = { version = "2", features = ["full"] }
 thiserror              = "2"
